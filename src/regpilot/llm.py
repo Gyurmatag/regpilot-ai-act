@@ -147,40 +147,42 @@ class StubClient(LLMClient):
 
         # ----------------------------------------------------------------- #
         # Intake — emit a JSON structure the intake node can parse.
+        # Use the actual user description (after "Description:") rather than the
+        # whole prompt; otherwise the stub leaks its own template into state.
         # ----------------------------------------------------------------- #
-        if "extract the following fields" in low or "intake_classifier" in low:
+        if "intake_classifier" in low and "description:" in low:
+            desc = prompt.split("Description:", 1)[-1].strip()
             return json.dumps(
                 {
-                    "system_purpose": _excerpt(prompt, 120),
+                    "system_purpose": _excerpt(desc, 200),
                     "deployment_context": "EU market",
-                    "data_modalities": _guess_modalities(prompt),
+                    "data_modalities": _guess_modalities(desc),
                     "user_role": "provider",
-                    "domain": _guess_domain(prompt),
+                    "domain": _guess_domain(desc),
                     "notes": "stub-generated",
                 }
             )
 
-        # ----------------------------------------------------------------- #
-        # Triage — return a structured tier verdict.
-        # ----------------------------------------------------------------- #
-        if "classify the system" in low or "risk tier" in low:
-            # Only look at the user description (after "System description:"),
-            # not the rubric definitions which mention every category.
-            desc = prompt.split("System description:", 1)[-1]
-            tier, rationale = _stub_classify(desc)
-            return json.dumps({"tier": tier, "rationale": rationale, "annex_iii": []})
+        # The order of the checks matters — each node's prompt is recognised by
+        # a unique sentinel string. Sentinel selection is intentionally narrow so
+        # one node's prompt can't accidentally trigger another node's branch.
 
         # ----------------------------------------------------------------- #
-        # Rerank — return a JSON list of indices.
+        # Synthesizer (check before triage — synth prompt also mentions "risk tier")
         # ----------------------------------------------------------------- #
-        if "rerank" in low:
-            # Echo the input order unchanged (top-k handled by the caller).
+        if "draft a compliance roadmap" in low or "draft report for tier" in low:
+            return _stub_report(prompt)
+
+        # ----------------------------------------------------------------- #
+        # Rerank
+        # ----------------------------------------------------------------- #
+        if "return strict json: a list of the" in low and "indices" in low:
             return "[0,1,2,3,4]"
 
         # ----------------------------------------------------------------- #
-        # Query rewrite — return one paraphrase + the original.
+        # Query rewrite
         # ----------------------------------------------------------------- #
-        if "query rewrite" in low or "hyde" in low:
+        if "query rewrite task" in low:
             return json.dumps(
                 [
                     "EU AI Act obligations applicable to the described system",
@@ -189,15 +191,18 @@ class StubClient(LLMClient):
             )
 
         # ----------------------------------------------------------------- #
-        # Synthesizer — emit a templated report skeleton.
+        # Triage — return a structured tier verdict.
         # ----------------------------------------------------------------- #
-        if "draft" in low and "report" in low:
-            return _stub_report(prompt)
+        if "classify the system below by eu ai act risk tier" in low:
+            desc = prompt.split("System description:", 1)[-1]
+            tier, rationale = _stub_classify(desc)
+            return json.dumps({"tier": tier, "rationale": rationale, "annex_iii": []})
 
         # ----------------------------------------------------------------- #
-        # Validator — never finds gaps.
+        # Validator self-critique — never finds gaps (the citation_validator
+        # tool runs separately and is the source of truth).
         # ----------------------------------------------------------------- #
-        if "validator" in low or "self-critique" in low:
+        if "self-critique" in low:
             return json.dumps({"ok": True, "issues": []})
 
         return "Stub LLM response."
@@ -255,19 +260,28 @@ def _stub_classify(text: str) -> tuple[str, str]:
     return "minimal_risk", "no high-risk or prohibited indicators detected"
 
 
-def _stub_report(_: str) -> str:
+def _stub_report(prompt: str) -> str:
+    """Stub synthesizer that lifts real Article citations from the prompt context."""
+
+    cited = re.findall(r"Art\.\s*(\d+[a-z]?)", prompt)
+    # De-dupe but keep order; cap to 5 so the report stays compact.
+    seen: list[str] = []
+    for a in cited:
+        if a not in seen:
+            seen.append(a)
+    cite = ", ".join(f"Art. {a}" for a in seen[:5]) or "Art. 6"
     return (
-        "## Compliance roadmap (stub)\n"
-        "**Risk tier:** see triage output.\n\n"
-        "### Applicable obligations\n"
-        "- See cited Articles.\n\n"
-        "### Key deadlines\n"
-        "- See deadline_calculator output.\n\n"
-        "### Recommended next steps\n"
+        "## Executive summary\n"
+        "Stub-generated compliance roadmap for the described system.\n\n"
+        "## Risk classification\n"
+        f"The system is classified per the triage rationale (see {cite}).\n\n"
+        "## Obligations & deadlines\n"
+        "See the obligations table above; each row cites the Article it derives from.\n\n"
+        "## Recommended next steps\n"
         "1. Confirm risk classification with legal counsel.\n"
         "2. Compile technical documentation per Annex IV (if high-risk).\n"
-        "3. Set up post-market monitoring.\n\n"
-        "_Generated with the stub LLM — switch REGPILOT_LLM=ollama for a real report._"
+        "3. Establish post-market monitoring per the cited Articles.\n\n"
+        f"_Generated with the stub LLM. Cited: {cite}._"
     )
 
 

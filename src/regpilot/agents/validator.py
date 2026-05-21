@@ -26,16 +26,21 @@ def validator(state: RegPilotState) -> RegPilotState:
     if not draft.strip():
         issues.append("Draft report is empty.")
 
-    final_report = draft
+    final_report = ""
     if report.ok:
-        # Final tidy: prepend the cited-articles index for transparency.
+        # Final tidy: append the cited-articles index for transparency.
         cited = ", ".join(f"Art. {a}" for a in sorted(report.cited_articles))
         final_report = f"{draft}\n\n---\n_Cited Articles: {cited}_"
+    elif loops + 1 >= settings.max_validator_loops:
+        # Out of retries — still emit the draft so the user gets something
+        # actionable, but flag the unresolved issues.
+        flagged = "\n".join(f"> WARNING: {i}" for i in issues)
+        final_report = f"{flagged}\n\n{draft}".strip()
 
     return {
         "validation_issues": issues,
         "validator_loops": loops + 1,
-        "final_report": final_report if report.ok else "",
+        "final_report": final_report,
         "trace": [
             *state.get("trace", []),
             TraceEvent(
