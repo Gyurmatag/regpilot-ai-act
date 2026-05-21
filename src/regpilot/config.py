@@ -1,0 +1,48 @@
+"""Centralized settings, loaded from env vars (or `.env`)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    llm_backend: str = Field("ollama", alias="REGPILOT_LLM")
+    ollama_base_url: str = Field("http://localhost:11434", alias="OLLAMA_BASE_URL")
+    chat_model: str = Field("qwen2.5:3b-instruct", alias="REGPILOT_CHAT_MODEL")
+    embed_model: str = Field("nomic-embed-text", alias="REGPILOT_EMBED_MODEL")
+
+    chroma_dir: Path = Field(REPO_ROOT / "data" / "chroma", alias="REGPILOT_CHROMA_DIR")
+    data_dir: Path = Field(REPO_ROOT / "data" / "raw", alias="REGPILOT_DATA_DIR")
+
+    log_level: str = Field("INFO", alias="REGPILOT_LOG_LEVEL")
+
+    # EU AI Act source. Pinning the CELEX makes the ingestion deterministic.
+    ai_act_celex: str = "32024R1689"
+    ai_act_pdf_url: str = (
+        "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/"
+        "?uri=CELEX:32024R1689"
+    )
+
+    # Retrieval defaults
+    top_k_dense: int = 20
+    top_k_sparse: int = 20
+    top_k_rerank: int = 5
+    rrf_k: int = 60
+
+    # Validator loop cap
+    max_validator_loops: int = 2
+
+    @property
+    def is_stub(self) -> bool:
+        return self.llm_backend.lower() == "stub"
+
+
+settings = Settings()
