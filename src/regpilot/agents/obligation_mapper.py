@@ -7,7 +7,8 @@ obligations with concrete dates (via ``deadline_calculator_tool``).
 from __future__ import annotations
 
 import logging
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 
 from regpilot.state import RegPilotState, TraceEvent
 from regpilot.tools.deadline_calculator import (
@@ -23,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 def obligation_mapper(state: RegPilotState) -> RegPilotState:
     tier = state.get("risk_tier", "minimal_risk")
-    structured = state.get("structured", {})
-    retrieved = state.get("retrieved", [])
+    structured = state.get("structured") or {}
+    retrieved = state.get("retrieved") or []
     role = cast(UserRole, structured.get("user_role", "provider") or "provider")
 
     system_type = _tier_to_system_type(tier, structured)
@@ -72,7 +73,7 @@ def obligation_mapper(state: RegPilotState) -> RegPilotState:
     return updates
 
 
-def _tier_to_system_type(tier: str, structured: dict) -> SystemType:
+def _tier_to_system_type(tier: str, structured: Mapping[str, Any]) -> SystemType:
     notes = (structured.get("notes") or "").lower()
     purpose = (structured.get("system_purpose") or "").lower()
     if "gpai" in notes or "general-purpose" in notes or "general-purpose" in purpose:

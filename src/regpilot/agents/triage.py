@@ -8,6 +8,8 @@ in ``graph.py`` reads ``risk_tier`` to decide which branch to walk.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from regpilot.state import RegPilotState, TraceEvent
 from regpilot.tools.risk_classifier import classify
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def risk_triage(state: RegPilotState) -> RegPilotState:
-    structured = state.get("structured", {})
+    structured = state.get("structured") or {}
     verdict = classify(structured)
 
     rag_query = _build_rag_query(structured, verdict.tier)
@@ -44,7 +46,7 @@ def risk_triage(state: RegPilotState) -> RegPilotState:
     return updates
 
 
-def _build_rag_query(structured: dict, tier: str) -> str:
+def _build_rag_query(structured: Mapping[str, Any], tier: str) -> str:
     bits: list[str] = []
     if structured.get("system_purpose"):
         bits.append(str(structured["system_purpose"]))

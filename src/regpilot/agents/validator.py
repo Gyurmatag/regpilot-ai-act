@@ -28,9 +28,8 @@ def validator(state: RegPilotState) -> RegPilotState:
 
     final_report = ""
     if report.ok:
-        # Final tidy: append the cited-articles index for transparency.
-        cited = ", ".join(f"Art. {a}" for a in sorted(report.cited_articles))
-        final_report = f"{draft}\n\n---\n_Cited Articles: {cited}_"
+        # The synthesizer already cites inline — no need to append a footer.
+        final_report = draft
     elif loops + 1 >= settings.max_validator_loops:
         # Out of retries — still emit the draft so the user gets something
         # actionable, but flag the unresolved issues.

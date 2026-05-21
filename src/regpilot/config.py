@@ -47,4 +47,4 @@ class Settings(BaseSettings):
         return self.llm_backend.lower() == "stub"
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # pydantic-settings reads defaults from env

@@ -49,7 +49,9 @@ class VectorStore:
         ids = [c.id for c in chunks]
         docs = [c.text for c in chunks]
         metas = [self._flatten_meta(c) for c in chunks]
-        self.collection.upsert(ids=ids, documents=docs, metadatas=metas)
+        # chromadb's overload-only TypedDict signature doesn't accept plain
+        # dicts cleanly, but at runtime any str/int/float/bool mapping works.
+        self.collection.upsert(ids=ids, documents=docs, metadatas=metas)  # type: ignore[arg-type]
         return len(chunks)
 
     def reset(self) -> None:
@@ -68,22 +70,28 @@ class VectorStore:
     def query(self, text: str, *, k: int | None = None) -> list[RetrievedChunk]:
         k = k or settings.top_k_dense
         res = self.collection.query(query_texts=[text], n_results=k)
-        return _materialize(res)
+        return _materialize(dict(res))
 
     def all_documents(self) -> list[RetrievedChunk]:
         res = self.collection.get()
-        return [
-            RetrievedChunk(
-                id=res["ids"][i],
-                text=res["documents"][i],
-                article=res["metadatas"][i].get("article"),
-                paragraph=res["metadatas"][i].get("paragraph"),
-                title=res["metadatas"][i].get("title"),
-                source=res["metadatas"][i].get("source", "EU AI Act"),
-                score=0.0,
+        ids = res.get("ids") or []
+        docs = res.get("documents") or []
+        metas = res.get("metadatas") or []
+        out: list[RetrievedChunk] = []
+        for i, _id in enumerate(ids):
+            m = metas[i] if i < len(metas) else {}
+            out.append(
+                RetrievedChunk(
+                    id=str(_id),
+                    text=str(docs[i]) if i < len(docs) else "",
+                    article=_opt_str(m.get("article")),
+                    paragraph=_opt_str(m.get("paragraph")),
+                    title=_opt_str(m.get("title")),
+                    source=str(m.get("source") or "EU AI Act"),
+                    score=0.0,
+                )
             )
-            for i in range(len(res["ids"]))
-        ]
+        return out
 
     def count(self) -> int:
         return self.collection.count()
@@ -91,9 +99,9 @@ class VectorStore:
     # ----- helpers ------------------------------------------------------ #
 
     @staticmethod
-    def _flatten_meta(c: Chunk) -> dict:
+    def _flatten_meta(c: Chunk) -> dict[str, str | int | float | bool]:
         # Chroma metadata only allows str/int/float/bool — flatten everything else.
-        meta = {
+        meta: dict[str, str | int | float | bool] = {
             "article": c.article or "",
             "paragraph": c.paragraph or "",
             "title": c.title or "",
@@ -116,16 +124,24 @@ def _materialize(res: dict) -> list[RetrievedChunk]:
     dists = res.get("distances", [[0.0] * len(ids)])[0]
     out: list[RetrievedChunk] = []
     for i, _id in enumerate(ids):
+        m = metas[i] or {}
         out.append(
             RetrievedChunk(
-                id=_id,
-                text=docs[i],
-                article=metas[i].get("article") or None,
-                paragraph=metas[i].get("paragraph") or None,
-                title=metas[i].get("title") or None,
-                source=metas[i].get("source", "EU AI Act"),
+                id=str(_id),
+                text=str(docs[i]),
+                article=_opt_str(m.get("article")),
+                paragraph=_opt_str(m.get("paragraph")),
+                title=_opt_str(m.get("title")),
+                source=str(m.get("source") or "EU AI Act"),
                 # Convert cosine distance → similarity ∈ [0, 1].
                 score=max(0.0, 1.0 - float(dists[i])),
             )
         )
     return out
+
+
+def _opt_str(v: object) -> str | None:
+    if v is None:
+        return None
+    s = str(v)
+    return s if s else None

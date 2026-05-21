@@ -261,28 +261,67 @@ def _stub_classify(text: str) -> tuple[str, str]:
 
 
 def _stub_report(prompt: str) -> str:
-    """Stub synthesizer that lifts real Article citations from the prompt context."""
+    """Stub synthesizer.
 
-    cited = re.findall(r"Art\.\s*(\d+[a-z]?)", prompt)
-    # De-dupe but keep order; cite EVERY distinct Article so the citation
-    # validator + downstream eval see the full obligation set.
+    Only lifts Articles that appear in the *obligations* section (lines that
+    start with a YYYY-MM-DD date) — never from the retrieval context, which
+    would add off-topic citations. Produces tier-agnostic copy because the
+    tier-specific obligation list is rendered separately in the UI.
+    """
+
+    obligation_articles = re.findall(
+        r"\d{4}-\d{2}-\d{2}\s+\u2014\s+Art\.\s*(\d+[a-z]?)", prompt
+    )
     seen: list[str] = []
-    for a in cited:
+    for a in obligation_articles:
         if a not in seen:
             seen.append(a)
     cite = ", ".join(f"Art. {a}" for a in seen) or "Art. 6"
+
+    # Tier-aware language harvested from the prompt (synthesizer formats it as
+    # "Risk tier: <tier>").
+    tier_match = re.search(r"Risk tier:\s*([a-z_]+)", prompt)
+    tier = tier_match.group(1) if tier_match else "unknown"
+    next_steps = _stub_next_steps(tier)
+
     return (
         "## Executive summary\n"
-        "Stub-generated compliance roadmap for the described system.\n\n"
+        "A compliance roadmap based on the supplied EU AI Act context.\n\n"
         "## Risk classification\n"
-        f"The system is classified per the triage rationale (see {cite}).\n\n"
+        f"The system has been classified per the triage rationale. "
+        f"Applicable Articles: {cite}.\n\n"
         "## Obligations & deadlines\n"
-        "See the obligations table above; each row cites the Article it derives from.\n\n"
+        "The full obligation table is shown in the trace panel; each entry "
+        "cites the Article it derives from.\n\n"
         "## Recommended next steps\n"
-        "1. Confirm risk classification with legal counsel.\n"
-        "2. Compile technical documentation per Annex IV (if high-risk).\n"
-        "3. Establish post-market monitoring per the cited Articles.\n\n"
-        f"_Generated with the stub LLM. Cited: {cite}._"
+        f"{next_steps}\n"
+    )
+
+
+def _stub_next_steps(tier: str) -> str:
+    if tier == "high_risk":
+        return (
+            "1. Confirm the risk classification and applicable Annex III area with legal counsel.\n"
+            "2. Map each obligation in the table to an internal owner and target date.\n"
+            "3. Compile technical documentation per Annex IV (Art. 11) and prepare for the conformity assessment (Art. 43)."
+        )
+    if tier == "limited_risk":
+        return (
+            "1. Implement the Article 50 transparency disclosures in the user-facing flow.\n"
+            "2. Label any AI-generated or AI-modified media (deepfakes, synthetic text) accordingly.\n"
+            "3. Track Article 50 implementing guidance from the AI Office."
+        )
+    if tier == "minimal_risk":
+        return (
+            "1. No mandatory obligations apply, but adopt a voluntary code of conduct per Article 95.\n"
+            "2. Re-check classification annually as the system evolves.\n"
+            "3. Apply general data-protection and product-liability law as a baseline."
+        )
+    # prohibited / unknown
+    return (
+        "1. Cease placing the system on the EU market and putting it into service.\n"
+        "2. Consult legal counsel on remediation and potential redesign.\n"
+        "3. Communicate the change to internal stakeholders and customers."
     )
 
 

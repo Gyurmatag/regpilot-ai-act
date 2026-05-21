@@ -403,7 +403,11 @@ with col_chat:
                 t0 = time.perf_counter()
                 state = _graph().invoke({"user_input": prompt, "validator_loops": 0})
                 elapsed = time.perf_counter() - t0
-                status.update(label=f"Completed in {elapsed:.1f}s", state="complete")
+                label = (
+                    "Done" if elapsed < 0.5
+                    else f"Done in {elapsed:.1f}s"
+                )
+                status.update(label=label, state="complete")
             _render_assistant(state)
         st.session_state.history.append({"user": prompt, "state": state})
 
