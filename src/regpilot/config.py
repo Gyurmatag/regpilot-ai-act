@@ -24,11 +24,14 @@ class Settings(BaseSettings):
 
     log_level: str = Field("INFO", alias="REGPILOT_LOG_LEVEL")
 
-    # EU AI Act source. Pinning the CELEX makes the ingestion deterministic.
+    # EU AI Act source. Publications Office cellar URL with content negotiation —
+    # EUR-Lex sits behind a CloudFront WAF that 403s scripted clients, so we go
+    # straight to the publications.europa.eu resource which serves the PDF when
+    # we send `Accept: application/pdf` + `Accept-Language: eng`.
     ai_act_celex: str = "32024R1689"
     ai_act_pdf_url: str = (
-        "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/"
-        "?uri=CELEX:32024R1689"
+        "https://publications.europa.eu/resource/cellar/"
+        "dc8116a1-3fe6-11ef-865a-01aa75ed71a1"
     )
 
     # Retrieval defaults
