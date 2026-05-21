@@ -118,7 +118,7 @@ def _queries(n: int) -> list[str]:
     ]
     out: list[str] = []
     while len(out) < n:
-        for i, q in enumerate(pool):
+        for q in pool:
             if len(out) >= n:
                 break
             # Light paraphrase suffix so subsequent runs aren't pure cache hits.

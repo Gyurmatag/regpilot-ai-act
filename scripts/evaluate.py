@@ -20,7 +20,7 @@ import re
 import statistics
 import sys
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 from regpilot.agents.intake import intake_classifier
