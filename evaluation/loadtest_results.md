@@ -4,21 +4,21 @@ Backend: `stub` (chat=`qwen2.5:3b-instruct`, embed=`nomic-embed-text`).
 
 - Total requests: **100**
 - Concurrency (semaphore): **8**
-- Wall-clock: **1.36 s**
-- Throughput: **73.46 req/s**
-- Latency (s): min 0.001 · **p50 0.073** · p95 0.541 · p99 0.566 · max 0.567 · mean 0.107
-- Peak RSS: **215 MB** — CPU% (process): **231%**
+- Wall-clock: **1.28 s**
+- Throughput: **77.94 req/s**
+- Latency (s): min 0.001 · **p50 0.070** · p95 0.509 · p99 0.525 · max 0.538 · mean 0.101
+- Peak RSS: **223 MB** — CPU% (process): **238%**
 - Tier distribution: `{'prohibited': 21, 'high_risk': 42, 'limited_risk': 19, 'minimal_risk': 18}`
 
 ## Per-node breakdown
 
 | node | calls | mean (ms) | p95 (ms) | total (s) | share |
 | --- | --- | --- | --- | --- | --- |
-| rag_retrieval | 79 | 131.03 | 530.00 | 10.351 | 99.6% |
-| validator | 79 | 0.25 | 0.03 | 0.019 | 0.2% |
-| risk_triage | 100 | 0.12 | 0.15 | 0.012 | 0.1% |
+| rag_retrieval | 79 | 123.24 | 500.32 | 9.736 | 99.6% |
+| validator | 79 | 0.21 | 0.03 | 0.017 | 0.2% |
+| risk_triage | 100 | 0.11 | 0.14 | 0.011 | 0.1% |
 | intake_classifier | 100 | 0.03 | 0.04 | 0.003 | 0.0% |
-| compliance_synthesizer | 79 | 0.04 | 0.04 | 0.003 | 0.0% |
+| compliance_synthesizer | 79 | 0.04 | 0.05 | 0.003 | 0.0% |
 | obligation_mapper | 79 | 0.02 | 0.03 | 0.001 | 0.0% |
 | prohibited_path | 21 | 0.01 | 0.01 | 0.000 | 0.0% |
 

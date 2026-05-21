@@ -35,7 +35,7 @@ Confusion matrix (rows = gold, columns = predicted):
 | q01 | prohibited | prohibited | 0.00 | 0.00 | 0.50 | 1.00 | yes | 0.00 |
 | q02 | prohibited | prohibited | 0.00 | 0.00 | 0.50 | 1.00 | yes | 0.00 |
 | q03 | prohibited | prohibited | 0.00 | 0.00 | 0.50 | 1.00 | yes | 0.00 |
-| q04 | high_risk | high_risk | 0.00 | 0.00 | 0.56 | 1.00 | yes | 0.19 |
+| q04 | high_risk | high_risk | 0.00 | 0.00 | 0.56 | 1.00 | yes | 0.12 |
 | q05 | high_risk | high_risk | 0.11 | 1.00 | 0.56 | 1.00 | yes | 0.01 |
 | q06 | high_risk | high_risk | 0.00 | 0.00 | 0.53 | 1.00 | yes | 0.01 |
 | q07 | high_risk | high_risk | 0.11 | 0.33 | 0.60 | 1.00 | yes | 0.01 |
