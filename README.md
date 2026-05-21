@@ -1,5 +1,11 @@
 # RegPilot — Agentic RAG Compliance Navigator for the EU AI Act
 
+[![CI](https://github.com/Gyurmatag/regpilot-ai-act/actions/workflows/ci.yml/badge.svg)](https://github.com/Gyurmatag/regpilot-ai-act/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code style: ruff](https://img.shields.io/badge/lint-ruff-46aef7.svg)](https://github.com/astral-sh/ruff)
+[![mypy: strict](https://img.shields.io/badge/typed-mypy-blue.svg)](http://mypy-lang.org/)
+
 Tell RegPilot what your AI system does. It classifies the system against the four
 risk tiers of the **EU AI Act** (Regulation (EU) 2024/1689), retrieves the
 applicable Articles, computes the concrete compliance deadlines from Article 113,
@@ -14,6 +20,23 @@ Built end-to-end with **LangGraph** (agentic workflow + a modular RAG subgraph),
 docker compose up --build
 # → http://localhost:8501
 ```
+
+![RegPilot UI screenshot](docs/img/regpilot-ui.png)
+
+> *Above: a CV-screening AI classified as `HIGH RISK` (Annex III: employment).
+> The right panel shows the six agent nodes that fired and the obligation table
+> the deadline calculator produced.*
+
+## Table of contents
+
+1. [Problem & justification](#1-problem--justification)
+2. [Architecture](#2-architecture)
+3. [Repo layout](#3-repo-layout)
+4. [Install & run](#4-install--run)
+5. [Functional evaluation](#5-functional-evaluation)
+6. [Load test](#6-load-test)
+7. [Tests & CI](#7-tests--ci)
+8. [Limitations & next steps](#8-limitations--next-steps)
 
 ---
 
@@ -196,39 +219,39 @@ pytest -q                           # 27 tests, ~3 s
 * **Single-node** on `risk_triage` — classification accuracy + confusion matrix.
 * **End-to-end** on the full graph — retrieval Recall@5, citation recall, citation precision, deadline exact-match, per-question latency.
 
-Latest run (with the stub LLM, reproducible from a fresh clone):
+Latest run (stub LLM, reproducible from a fresh clone):
 
 | Metric | Value | Threshold | Pass |
 |---|---|---|---|
-| triage_accuracy | **100.0%** | 80% | yes |
-| citation_recall | **100.0%** | 80% | yes |
-| deadline_exact_match | **100.0%** | 80% | yes |
-| retrieval_recall_at_5 | 24.4% | 20% (stub) | yes |
-| citation_precision | 43.0% | — | (informational) |
+| triage_accuracy | **100.0%** | 80% | ✓ |
+| citation_recall | **100.0%** | 80% | ✓ |
+| citation_precision | **80.0%** | 70% | ✓ |
+| deadline_exact_match | **100.0%** | 80% | ✓ |
+| retrieval_recall_at_5 | 24.4% | 20% (stub) | ✓ |
 
 See [`evaluation/results.md`](evaluation/results.md) for the confusion matrix and per-question breakdown.
 
 **Honest caveats.**
 
-* `citation_precision` is informational, not gated: the retrieval subgraph legitimately surfaces adjacent Articles (Annex III matches, Art. 6/7 definitions) that the user genuinely wants in the report but which fall outside the *narrow* gold list per question.
 * `retrieval_recall_at_5` is the metric most affected by the stub LLM: the deterministic hash-based stub embeddings make the *dense* leg of the hybrid retriever effectively random. With Ollama `nomic-embed-text` the dense leg pulls its weight and the same number lands materially higher in smoke runs.
+* End-to-end **real-Ollama runs were verified manually** via the dockerised stack: `docker compose up --build` pulls `qwen2.5:3b-instruct` + `nomic-embed-text`, runs ingest (856 chunks indexed against the real EU AI Act PDF), boots Streamlit on `:8501`, and the CV-screening example correctly returned `HIGH RISK` with a tier-specific multi-step roadmap citing Articles 9–72 (~3.5 minutes wall-clock for one request on an 8-core M-series CPU). The eval suite uses the stub by default for CI reproducibility.
 
 ---
 
 ## 6. Load test
 
-`scripts/loadtest.py --n 100 --concurrency 8` runs 100 concurrent requests through the full graph via `asyncio.to_thread`, instruments each node with a timing wrapper, and writes [`evaluation/loadtest_results.md`](evaluation/loadtest_results.md). Latest run on the stub backend (Mac, 8-core):
+`scripts/loadtest.py --n 100 --concurrency 8` runs 100 concurrent requests through the full graph via `asyncio.to_thread`. **One warm-up request is issued before timing** so the BM25 index, Chroma client, and LLM cache are hot — reported numbers reflect steady-state. Each node is wrapped with a timing decorator and the totals land in [`evaluation/loadtest_results.md`](evaluation/loadtest_results.md). Latest run on the stub backend (Mac, 8-core):
 
 | Metric | Value |
 |---|---|
 | Requests | 100 |
 | Concurrency (semaphore) | 8 |
-| Wall-clock | ~1.4 s |
-| Throughput | ~73 req/s |
-| Latency p50 / p95 / p99 | 0.07s / 0.54s / 0.57s |
-| Peak RSS | ~215 MB |
+| Wall-clock | ~1.3 s |
+| Throughput | ~78 req/s |
+| Latency p50 / p95 / p99 | 0.07s / 0.53s / 0.55s |
+| Peak RSS | ~218 MB |
 
-**Bottleneck.** `rag_retrieval` dominates — its first call builds the BM25 index from the ~840-chunk Chroma corpus, which inflates p95 / p99. Once warm, subsequent calls take <50 ms. With Ollama in the loop the picture flips and the LLM round-trips in `query_rewrite`, `rerank` and especially `compliance_synthesizer` dominate (typically 70%+ of wall time).
+**Bottleneck.** Post warm-up, `rag_retrieval` still dominates (~99% of node wall-time) because the dense+sparse fan-out across rewritten queries hits Chroma + BM25 multiple times per request. With Ollama in the loop the picture flips: LLM round-trips in `query_rewrite`, `rerank` and especially `compliance_synthesizer` dominate (typically 70%+ of wall time).
 
 **Two concrete optimisations.**
 
@@ -239,13 +262,14 @@ See [`evaluation/results.md`](evaluation/results.md) for the confusion matrix an
 
 ## 7. Tests & CI
 
-`pytest -q` runs 27 tests in ~3 s:
+`pytest -q` runs **33 tests in ~1.5 s** with **76% line coverage**:
 
 * `tests/test_tools.py` — risk classifier across all four tiers, deadline calculator phase math, citation validator pass/fail cases.
+* `tests/test_chunker.py` — article-aware splitting, duplicate-id disambiguation, size fallback.
 * `tests/test_rag.py` — dense + sparse + hybrid retrieval, full RAG subgraph end-to-end.
 * `tests/test_graph.py` — main workflow per tier, prohibited short-circuit, validator-loop bounds, trace completeness.
 
-GitHub Actions [`ci.yml`](.github/workflows/ci.yml) runs `ruff check` + `pytest` on every push and PR to `main`, all with `REGPILOT_LLM=stub` so the suite stays offline and fast.
+GitHub Actions [`ci.yml`](.github/workflows/ci.yml) runs `ruff check` + `mypy src` + `pytest --cov=regpilot --cov-fail-under=70` on every push and PR to `main`, all with `REGPILOT_LLM=stub` so the suite stays offline and fast. The whole pipeline finishes in under a minute.
 
 ---
 

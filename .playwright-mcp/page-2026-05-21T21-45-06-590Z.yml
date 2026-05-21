@@ -1,0 +1,169 @@
+- generic [ref=e2]:
+  - generic [ref=e11]:
+    - heading "RegPilot" [level=3] [ref=e16]
+    - paragraph [ref=e21]: Agentic RAG compliance navigator for the EU AI Act.
+    - generic [ref=e23]:
+      - paragraph [ref=e28]:
+        - strong [ref=e29]: System status
+      - paragraph [ref=e34]:
+        - text: "LLM backend:"
+        - code [ref=e35]: Stub (deterministic)
+      - paragraph [ref=e40]:
+        - text: "Vector store:"
+        - strong [ref=e41]: "857"
+        - text: chunks indexed
+    - paragraph [ref=e46]:
+      - strong [ref=e47]: Try an example
+    - button "CV screening tool" [ref=e53] [cursor=pointer]:
+      - paragraph [ref=e57]: CV screening tool
+    - button "Predictive policing" [ref=e63] [cursor=pointer]:
+      - paragraph [ref=e67]: Predictive policing
+    - button "Support chatbot" [ref=e73] [cursor=pointer]:
+      - paragraph [ref=e77]: Support chatbot
+    - button "Exam grading" [ref=e83] [cursor=pointer]:
+      - paragraph [ref=e87]: Exam grading
+    - button "Spam filter" [ref=e93] [cursor=pointer]:
+      - paragraph [ref=e97]: Spam filter
+    - button "Generative marketing" [ref=e103] [cursor=pointer]:
+      - paragraph [ref=e107]: Generative marketing
+    - button "Police facial recognition" [ref=e113] [cursor=pointer]:
+      - paragraph [ref=e117]: Police facial recognition
+    - separator [ref=e122]
+    - paragraph [ref=e127]: "Sources: Regulation (EU) 2024/1689 (EU AI Act) and Annex III. Not legal advice."
+  - generic [ref=e130]:
+    - generic [ref=e132]:
+      - generic [ref=e136]:
+        - heading "RegPilot" [level=1] [ref=e138]:
+          - text: RegPilot
+          - generic [ref=e139]:
+            - link "Link to heading":
+              - /url: "#reg-pilot"
+              - img
+        - paragraph [ref=e140]: Classify your AI system → retrieve the applicable Articles → get a compliance roadmap.
+      - generic [ref=e142]:
+        - generic [ref=e144]:
+          - generic [ref=e187]:
+            - generic [ref=e190]: face
+            - generic "Chat message from user" [ref=e191]:
+              - paragraph [ref=e197]: An automated CV screening AI that ranks applicants for tech roles in Hungary.
+          - generic [ref=e199]:
+            - generic [ref=e202]: smart_toy
+            - generic "Chat message from assistant" [ref=e203]:
+              - generic [ref=e204]:
+                - group [ref=e207]:
+                  - generic "check Done" [ref=e208] [cursor=pointer]:
+                    - generic [ref=e209]:
+                      - generic [ref=e211]: check
+                      - paragraph [ref=e214]: Done
+                - generic [ref=e219]:
+                  - strong [ref=e220]: "Risk tier:"
+                  - generic [ref=e221]: High risk
+                - paragraph [ref=e226]: "Matches Annex III high-risk area(s): Employment, worker management, access to self-employment."
+                - generic [ref=e232]:
+                  - heading "Executive summary" [level=2] [ref=e234]:
+                    - text: Executive summary
+                    - generic [ref=e235]:
+                      - link "Link to heading":
+                        - /url: "#executive-summary"
+                        - img
+                  - paragraph [ref=e236]: A compliance roadmap based on the supplied EU AI Act context.
+                  - heading "Risk classification" [level=2] [ref=e238]:
+                    - text: Risk classification
+                    - generic [ref=e239]:
+                      - link "Link to heading":
+                        - /url: "#risk-classification"
+                        - img
+                  - paragraph [ref=e240]: "The system has been classified per the triage rationale. Applicable Articles: Art. 9, Art. 10, Art. 11, Art. 12, Art. 13, Art. 14, Art. 15, Art. 17, Art. 18, Art. 43, Art. 49, Art. 72."
+                  - heading "Obligations & deadlines" [level=2] [ref=e242]:
+                    - text: Obligations & deadlines
+                    - generic [ref=e243]:
+                      - link "Link to heading":
+                        - /url: "#obligations-and-deadlines"
+                        - img
+                  - paragraph [ref=e244]: The full obligation table is shown in the trace panel; each entry cites the Article it derives from.
+                  - heading "Recommended next steps" [level=2] [ref=e246]:
+                    - text: Recommended next steps
+                    - generic [ref=e247]:
+                      - link "Link to heading":
+                        - /url: "#recommended-next-steps"
+                        - img
+                  - list [ref=e248]:
+                    - listitem [ref=e249]: Confirm the risk classification and applicable Annex III area with legal counsel.
+                    - listitem [ref=e250]: Map each obligation in the table to an internal owner and target date.
+                    - listitem [ref=e251]: Compile technical documentation per Annex IV (Art. 11) and prepare for the conformity assessment (Art. 43).
+        - generic [ref=e155]:
+          - generic [ref=e160]: Agent trace
+          - group [ref=e254]:
+            - generic "keyboard_arrow_right ① intake_classifier — structured the user description" [ref=e255] [cursor=pointer]:
+              - generic [ref=e256]:
+                - generic [ref=e258]: keyboard_arrow_right
+                - paragraph [ref=e261]:
+                  - text: ①
+                  - strong [ref=e262]: intake_classifier
+                  - text: — structured the user description
+          - group [ref=e265]:
+            - generic "keyboard_arrow_right ② risk_triage — classified as high_risk (conf=1.00)" [ref=e266] [cursor=pointer]:
+              - generic [ref=e267]:
+                - generic [ref=e269]: keyboard_arrow_right
+                - paragraph [ref=e272]:
+                  - text: ②
+                  - strong [ref=e273]: risk_triage
+                  - text: — classified as high_risk (conf=1.00)
+          - group [ref=e276]:
+            - generic "keyboard_arrow_right ③ rag_retrieval — retrieved 5 chunks in 0.05s" [ref=e277] [cursor=pointer]:
+              - generic [ref=e278]:
+                - generic [ref=e280]: keyboard_arrow_right
+                - paragraph [ref=e283]:
+                  - text: ③
+                  - strong [ref=e284]: rag_retrieval
+                  - text: — retrieved 5 chunks in 0.05s
+          - group [ref=e287]:
+            - generic "keyboard_arrow_right ④ obligation_mapper — mapped 12 obligations (system_type=annex_iii_high_risk)" [ref=e288] [cursor=pointer]:
+              - generic [ref=e289]:
+                - generic [ref=e291]: keyboard_arrow_right
+                - paragraph [ref=e294]:
+                  - text: ④
+                  - strong [ref=e295]: obligation_mapper
+                  - text: — mapped 12 obligations (system_type=annex_iii_high_risk)
+          - group [ref=e298]:
+            - generic "keyboard_arrow_right ⑤ compliance_synthesizer — drafted report (718 chars)" [ref=e299] [cursor=pointer]:
+              - generic [ref=e300]:
+                - generic [ref=e302]: keyboard_arrow_right
+                - paragraph [ref=e305]:
+                  - text: ⑤
+                  - strong [ref=e306]: compliance_synthesizer
+                  - text: — drafted report (718 chars)
+          - group [ref=e309]:
+            - generic "keyboard_arrow_right ⑥ validator — ok — cited 12 Articles" [ref=e310] [cursor=pointer]:
+              - generic [ref=e311]:
+                - generic [ref=e313]: keyboard_arrow_right
+                - paragraph [ref=e316]:
+                  - text: ⑥
+                  - strong [ref=e317]: validator
+                  - text: — ok — cited 12 Articles
+          - generic [ref=e322]: Obligations & deadlines
+          - generic [ref=e327]:
+            - button "Show/hide columns" [ref=e331] [cursor=pointer]:
+              - img [ref=e332]
+            - button "Download as CSV" [ref=e337] [cursor=pointer]:
+              - img [ref=e338]
+            - button "Search" [ref=e343] [cursor=pointer]:
+              - img [ref=e344]
+            - button "Fullscreen" [ref=e349] [cursor=pointer]:
+              - img [ref=e350]
+          - group [ref=e363]:
+            - generic "keyboard_arrow_right Cited evidence (5 chunks)" [ref=e364] [cursor=pointer]:
+              - generic [ref=e365]:
+                - generic [ref=e367]: keyboard_arrow_right
+                - paragraph [ref=e370]: Cited evidence (5 chunks)
+      - generic [ref=e165]:
+        - text: "Not legal advice. Source:"
+        - link "Regulation (EU) 2024/1689" [ref=e166] [cursor=pointer]:
+          - /url: https://eur-lex.europa.eu/eli/reg/2024/1689/oj
+        - text: ·
+        - link "source" [ref=e167] [cursor=pointer]:
+          - /url: https://github.com/Gyurmatag/regpilot-ai-act
+    - generic [ref=e176]:
+      - textbox "Describe your AI system…" [ref=e180]
+      - button "Send message" [disabled] [ref=e182]:
+        - img [ref=e183]
