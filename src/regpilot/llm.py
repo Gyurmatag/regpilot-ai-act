@@ -164,7 +164,10 @@ class StubClient(LLMClient):
         # Triage — return a structured tier verdict.
         # ----------------------------------------------------------------- #
         if "classify the system" in low or "risk tier" in low:
-            tier, rationale = _stub_classify(prompt)
+            # Only look at the user description (after "System description:"),
+            # not the rubric definitions which mention every category.
+            desc = prompt.split("System description:", 1)[-1]
+            tier, rationale = _stub_classify(desc)
             return json.dumps({"tier": tier, "rationale": rationale, "annex_iii": []})
 
         # ----------------------------------------------------------------- #
