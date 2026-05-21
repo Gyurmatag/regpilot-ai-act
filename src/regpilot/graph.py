@@ -79,8 +79,21 @@ def _make_rag_node(rag_subgraph):
 def prohibited_path(state: RegPilotState) -> RegPilotState:
     """Short-circuit for systems that are outright banned by Article 5."""
 
+    from regpilot.tools.deadline_calculator import compute_deadlines, summarize_phase
+
     structured = state.get("structured", {})
     matches = state.get("annex_iii_matches", [])
+    info = compute_deadlines("prohibited")
+    obligations = [
+        {
+            "article": d.article,
+            "obligation": d.obligation,
+            "applies_from": d.applies_from.isoformat(),
+            "phase": summarize_phase(d.applies_from),
+            "note": d.note,
+        }
+        for d in info
+    ]
     report = (
         f"## Risk classification\n"
         f"The described system is **PROHIBITED** under Article 5 of the EU AI Act.\n\n"
@@ -90,6 +103,14 @@ def prohibited_path(state: RegPilotState) -> RegPilotState:
         f"### Cited\nArt. 5, Art. 113.\n"
     )
     return {
+        "obligations": obligations,
+        "deadlines": {
+            "system_type": "prohibited",
+            "user_role": structured.get("user_role", "unknown"),
+            "items": [
+                {"article": d.article, "date": d.applies_from.isoformat()} for d in info
+            ],
+        },
         "final_report": report,
         "trace": [
             *state.get("trace", []),

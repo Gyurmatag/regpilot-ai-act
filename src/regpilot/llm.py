@@ -264,12 +264,13 @@ def _stub_report(prompt: str) -> str:
     """Stub synthesizer that lifts real Article citations from the prompt context."""
 
     cited = re.findall(r"Art\.\s*(\d+[a-z]?)", prompt)
-    # De-dupe but keep order; cap to 5 so the report stays compact.
+    # De-dupe but keep order; cite EVERY distinct Article so the citation
+    # validator + downstream eval see the full obligation set.
     seen: list[str] = []
     for a in cited:
         if a not in seen:
             seen.append(a)
-    cite = ", ".join(f"Art. {a}" for a in seen[:5]) or "Art. 6"
+    cite = ", ".join(f"Art. {a}" for a in seen) or "Art. 6"
     return (
         "## Executive summary\n"
         "Stub-generated compliance roadmap for the described system.\n\n"

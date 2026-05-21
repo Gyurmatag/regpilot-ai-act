@@ -132,15 +132,50 @@ def compute_deadlines(
             )
             out.append(
                 DeadlineInfo(
-                    obligation="Compile technical documentation per Annex IV; keep automatically generated logs.",
+                    obligation="Compile technical documentation per Annex IV.",
                     article="Art. 11",
                     applies_from=applies,
                 )
             )
             out.append(
                 DeadlineInfo(
-                    obligation="Ensure transparency to deployers and human-oversight measures.",
+                    obligation="Maintain automatically generated event logs for the system's lifetime.",
+                    article="Art. 12",
+                    applies_from=applies,
+                )
+            )
+            out.append(
+                DeadlineInfo(
+                    obligation="Ensure transparency to deployers and provide instructions for use.",
                     article="Art. 13",
+                    applies_from=applies,
+                )
+            )
+            out.append(
+                DeadlineInfo(
+                    obligation="Implement human-oversight measures appropriate to the system.",
+                    article="Art. 14",
+                    applies_from=applies,
+                )
+            )
+            out.append(
+                DeadlineInfo(
+                    obligation="Achieve appropriate accuracy, robustness and cybersecurity.",
+                    article="Art. 15",
+                    applies_from=applies,
+                )
+            )
+            out.append(
+                DeadlineInfo(
+                    obligation="Operate a quality management system as the provider.",
+                    article="Art. 17",
+                    applies_from=applies,
+                )
+            )
+            out.append(
+                DeadlineInfo(
+                    obligation="Keep technical documentation and logs available for 10 years.",
+                    article="Art. 18",
                     applies_from=applies,
                 )
             )

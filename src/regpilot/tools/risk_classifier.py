@@ -49,7 +49,47 @@ def _rule_scan(text: str) -> tuple[list[str], list[str]]:
     for prac in ARTICLE_5_PROHIBITED:
         if any(_kw_match(kw, low) for kw in prac.keywords):
             art5_hits.append(prac.code)
+
+    # Combination patterns: catch wordings the literal keyword scan misses.
+    for pattern, code in _COMBO_PATTERNS:
+        if pattern.search(low) and code not in art5_hits:
+            art5_hits.append(code)
     return annex_hits, art5_hits
+
+
+# Combination patterns for Article 5 — paraphrased wordings the literal
+# keyword list can't catch.
+_COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # "police ... predict ... crime|criminal" → 5(1)(d) predictive policing
+    (
+        re.compile(
+            r"\b(police|law\s+enforcement)\b.{0,80}\bpredict\b.{0,80}\b(crime|criminal|offend|reoffend)",
+            re.I | re.S,
+        ),
+        "5(1)(d)",
+    ),
+    # "predict ... who will commit a crime" — variant
+    (
+        re.compile(r"\bpredict\b.{0,60}\bwho\s+will\s+commit\b.{0,40}\bcrime", re.I | re.S),
+        "5(1)(d)",
+    ),
+    # "emotion recognition ... (office|workplace|employee|workday)" → 5(1)(f)
+    (
+        re.compile(
+            r"\bemotion\s+recognition\b.{0,80}\b(office|workplace|employee|workday|staff)",
+            re.I | re.S,
+        ),
+        "5(1)(f)",
+    ),
+    # "scrape ... (face|facial) ... (image|photo)" → 5(1)(e)
+    (
+        re.compile(
+            r"\bscrap(?:e|ing|es|ed)\b.{0,40}\b(facial|face)\b.{0,40}\b(image|photo)",
+            re.I | re.S,
+        ),
+        "5(1)(e)",
+    ),
+)
 
 
 def _kw_match(keyword: str, low_text: str) -> bool:
@@ -139,10 +179,15 @@ def classify(structured: StructuredIntake, llm: LLMClient | None = None) -> Risk
             confidence=1.0,
         )
 
-    if re.search(r"\b(chatbot|deepfake|synthetic\s+media|generative)\b", text_for_rules, re.I):
+    if re.search(
+        r"\b(chatbot|deepfake|synthetic\s+(media|content)|generative|voice\s+assistant|"
+        r"virtual\s+assistant|conversational\s+agent)\b",
+        text_for_rules,
+        re.I,
+    ):
         return RiskVerdict(
             tier="limited_risk",
-            rationale="Generative/chatbot patterns trigger Article 50 transparency obligations.",
+            rationale="Generative / conversational patterns trigger Article 50 transparency obligations.",
             annex_iii_matches=[],
             article_5_matches=[],
             confidence=0.9,

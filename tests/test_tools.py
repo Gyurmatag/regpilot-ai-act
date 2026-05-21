@@ -63,9 +63,17 @@ def test_prohibited_uses_phase_1_date() -> None:
 
 def test_annex_iii_obligations_apply_in_phase_3() -> None:
     out = compute_deadlines("annex_iii_high_risk", "provider")
-    assert len(out) >= 7
+    assert len(out) >= 10
     assert all(o.applies_from == GENERAL_APPLICATION for o in out)
-    assert {o.article for o in out} >= {"Art. 9", "Art. 11", "Art. 43", "Art. 49", "Art. 72"}
+    assert {o.article for o in out} >= {
+        "Art. 9",
+        "Art. 11",
+        "Art. 13",
+        "Art. 17",
+        "Art. 43",
+        "Art. 49",
+        "Art. 72",
+    }
 
 
 def test_annex_i_uses_phase_4_date() -> None:
