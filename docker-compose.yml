@@ -1,0 +1,61 @@
+services:
+  ollama:
+    image: ollama/ollama:0.5.4
+    container_name: regpilot-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  ingest:
+    build:
+      context: .
+    container_name: regpilot-ingest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      REGPILOT_LLM: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      REGPILOT_CHAT_MODEL: qwen2.5:3b-instruct
+      REGPILOT_EMBED_MODEL: nomic-embed-text
+      REGPILOT_CHROMA_DIR: /data/chroma
+      REGPILOT_DATA_DIR: /data/raw
+    volumes:
+      - chroma:/data/chroma
+      - data:/data/raw
+    entrypoint: ["/usr/local/bin/entrypoint-ingest.sh"]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+    container_name: regpilot-app
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+    environment:
+      REGPILOT_LLM: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      REGPILOT_CHAT_MODEL: qwen2.5:3b-instruct
+      REGPILOT_EMBED_MODEL: nomic-embed-text
+      REGPILOT_CHROMA_DIR: /data/chroma
+      REGPILOT_DATA_DIR: /data/raw
+    ports:
+      - "8501:8501"
+    volumes:
+      - chroma:/data/chroma
+      - data:/data/raw
+
+volumes:
+  ollama-models:
+  chroma:
+  data:

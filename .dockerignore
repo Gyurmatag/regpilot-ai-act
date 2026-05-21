@@ -1,0 +1,16 @@
+.venv/
+venv/
+.git/
+.github/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/
+__pycache__/
+*.pyc
+evaluation/results.md
+evaluation/loadtest_results.md
+.env
+.env.local
+*.log
+.DS_Store
