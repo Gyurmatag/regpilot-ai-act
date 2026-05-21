@@ -6,7 +6,6 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph.message import add_messages
 
-
 RiskTier = Literal[
     "prohibited",
     "high_risk",

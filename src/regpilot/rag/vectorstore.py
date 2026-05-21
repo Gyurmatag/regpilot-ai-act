@@ -7,9 +7,9 @@ is enough; no need for a separate Chroma server.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -53,10 +53,10 @@ class VectorStore:
         return len(chunks)
 
     def reset(self) -> None:
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):  # first-run case: collection doesn't exist yet
             self.client.delete_collection(COLLECTION_NAME)
-        except Exception:  # pragma: no cover - first-run case
-            pass
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME,
             embedding_function=self.embedding_function,

@@ -41,7 +41,6 @@ from regpilot.agents.obligation_mapper import obligation_mapper
 from regpilot.agents.synthesizer import compliance_synthesizer
 from regpilot.agents.triage import risk_triage, route_by_tier
 from regpilot.agents.validator import route_after_validator, validator
-from regpilot.config import settings
 from regpilot.rag.subgraph import build_rag_subgraph
 from regpilot.state import RegPilotState, TraceEvent
 

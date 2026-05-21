@@ -11,7 +11,6 @@ Run locally::
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 
@@ -19,7 +18,7 @@ import streamlit as st
 
 from regpilot.config import settings
 from regpilot.graph import build_main_graph
-from regpilot.llm import OllamaClient, StubClient, get_llm
+from regpilot.llm import OllamaClient, get_llm
 from regpilot.rag.vectorstore import VectorStore
 from regpilot.state import RegPilotState
 
@@ -115,16 +114,9 @@ col_chat, col_trace = st.columns([3, 2], gap="large")
 if "history" not in st.session_state:
     st.session_state.history = []  # list[dict(user, state)]
 
-# Render existing history
-with col_chat:
-    for turn in st.session_state.history:
-        with st.chat_message("user"):
-            st.markdown(turn["user"])
-        with st.chat_message("assistant"):
-            _render_assistant(turn["state"]) if False else None  # placeholder
 
 # --------------------------------------------------------------------------- #
-# Renderers (defined here, used below)
+# Renderers
 # --------------------------------------------------------------------------- #
 
 
@@ -187,7 +179,7 @@ def _render_trace(state: RegPilotState) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Re-render history with the real renderers (Streamlit is stateless per run)
+# Render history (Streamlit is stateless across runs — replay from session)
 # --------------------------------------------------------------------------- #
 
 

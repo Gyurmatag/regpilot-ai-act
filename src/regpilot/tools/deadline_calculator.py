@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-
 SystemType = Literal[
     "annex_iii_high_risk",
     "annex_i_high_risk",
