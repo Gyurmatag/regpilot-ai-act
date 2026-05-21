@@ -150,13 +150,31 @@ def _llm_classify(llm: LLMClient, description: str) -> RiskVerdict:
 # --------------------------------------------------------------------------- #
 
 
-def classify(structured: StructuredIntake, llm: LLMClient | None = None) -> RiskVerdict:
-    """Hybrid classifier: rules first, LLM only on miss."""
+def classify(
+    structured: StructuredIntake,
+    llm: LLMClient | None = None,
+    *,
+    raw_text: str = "",
+) -> RiskVerdict:
+    """Hybrid classifier: rules first, LLM only on miss.
+
+    The rule scan runs over BOTH the structured intake fields and the
+    original ``raw_text`` (when supplied) so a weak intake LLM can't drop
+    a keyword like "CV screening" and trick the system into the wrong tier.
+    """
 
     llm = llm or get_llm()
     text_for_rules = " ".join(
-        str(structured.get(k, ""))
-        for k in ("system_purpose", "deployment_context", "domain", "notes")
+        filter(
+            None,
+            [
+                raw_text,
+                *(
+                    str(structured.get(k, ""))
+                    for k in ("system_purpose", "deployment_context", "domain", "notes")
+                ),
+            ],
+        )
     )
 
     annex_hits, art5_hits = _rule_scan(text_for_rules)

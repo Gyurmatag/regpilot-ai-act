@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 def risk_triage(state: RegPilotState) -> RegPilotState:
     structured = state.get("structured") or {}
-    verdict = classify(structured)
+    raw_text = state.get("user_input", "") or ""
+    verdict = classify(structured, raw_text=raw_text)
 
     rag_query = _build_rag_query(structured, verdict.tier)
 

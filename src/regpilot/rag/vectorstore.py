@@ -42,17 +42,23 @@ class VectorStore:
 
     # ----- writes ------------------------------------------------------- #
 
-    def upsert(self, chunks: Iterable[Chunk]) -> int:
-        chunks = list(chunks)
+    def upsert(self, chunks: Iterable[Chunk], *, batch_size: int = 64) -> int:
+        # Filter out empty/whitespace-only chunks defensively — Ollama's
+        # nomic-embed-text returns an empty vector on whitespace input, which
+        # then fails chromadb's "non-empty 1-D array" validation downstream.
+        chunks = [c for c in chunks if c.text and c.text.strip()]
         if not chunks:
             return 0
-        ids = [c.id for c in chunks]
-        docs = [c.text for c in chunks]
-        metas = [self._flatten_meta(c) for c in chunks]
-        # chromadb's overload-only TypedDict signature doesn't accept plain
-        # dicts cleanly, but at runtime any str/int/float/bool mapping works.
-        self.collection.upsert(ids=ids, documents=docs, metadatas=metas)  # type: ignore[arg-type]
-        return len(chunks)
+
+        n = 0
+        for start in range(0, len(chunks), batch_size):
+            batch = chunks[start : start + batch_size]
+            ids = [c.id for c in batch]
+            docs = [c.text for c in batch]
+            metas = [self._flatten_meta(c) for c in batch]
+            self.collection.upsert(ids=ids, documents=docs, metadatas=metas)  # type: ignore[arg-type]
+            n += len(batch)
+        return n
 
     def reset(self) -> None:
         import contextlib

@@ -88,12 +88,22 @@ class OllamaClient(LLMClient):
         out: list[list[float]] = []
         # Ollama embeds one prompt per request; batching is not in the public API yet.
         for t in texts:
+            # Empty / whitespace inputs make Ollama return [] which then breaks
+            # chromadb's "non-empty vector" validation. Substitute a single
+            # space so the embedder always returns a usable vector.
+            payload_text = t if t and t.strip() else " "
             r = self._client.post(
                 f"{self.base_url}/api/embeddings",
-                json={"model": self.embed_model, "prompt": t},
+                json={"model": self.embed_model, "prompt": payload_text},
             )
             r.raise_for_status()
-            out.append(list(r.json()["embedding"]))
+            emb = list(r.json().get("embedding") or [])
+            if not emb:
+                raise RuntimeError(
+                    f"Ollama returned an empty embedding for input "
+                    f"(len={len(t)}): {t[:80]!r}"
+                )
+            out.append(emb)
         return out
 
     def health(self) -> bool:
