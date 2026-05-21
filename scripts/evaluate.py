@@ -35,6 +35,7 @@ RESULTS = ROOT / "evaluation" / "results.md"
 THRESHOLDS = {
     "triage_accuracy": 0.80,
     "citation_recall": 0.80,
+    "citation_precision": 0.70,
     "deadline_exact_match": 0.80,
     # Retrieval Recall@5 is informational under the stub LLM (random embeddings
     # poison the dense leg of the hybrid retriever). With Ollama
@@ -329,7 +330,11 @@ def main() -> int:
         "citation_precision",
         "deadline_exact_match",
     ):
-        print(f"  {k}: {agg[k]:.2%}")
+        threshold = THRESHOLDS.get(k)
+        flag = ""
+        if threshold is not None:
+            flag = " ✓" if agg[k] >= threshold else f" ✗ (target {threshold:.0%})"
+        print(f"  {k}: {agg[k]:.2%}{flag}")
     print(f"  latency p50/p95: {agg['latency_p50']:.2f}s / {agg['latency_p95']:.2f}s")
 
     RESULTS.parent.mkdir(exist_ok=True)

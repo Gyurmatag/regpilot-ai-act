@@ -146,6 +146,15 @@ async def _harness(n: int, concurrency: int) -> dict:
     _ = proc.cpu_percent(interval=None)  # prime the counter
 
     graph = build_instrumented_graph()
+
+    # Warm-up: build BM25 index + Chroma client + LLM cache once before timing
+    # so cold-start cost doesn't poison p95/p99.
+    print("Warming up (1 query)…")
+    warm_sema = asyncio.Semaphore(1)
+    await _run_one(graph, _queries(1)[0], warm_sema)
+    # Reset timings so warm-up doesn't count.
+    _NODE_TIMINGS.clear()
+
     queries = _queries(n)
 
     sema = asyncio.Semaphore(concurrency)
@@ -261,14 +270,14 @@ def write_report(summary: dict, out_path: Path = RESULTS) -> None:
         )
 
     lines.append(f"\n**Identified bottleneck:** `{bottleneck}` "
-                 f"(largest share of node wall time).\n")
+                 f"(largest share of node wall time, post warm-up).\n")
     lines.append(
-        "The first call to `rag_retrieval` builds the BM25 index from the entire "
-        "Chroma corpus (~840 chunks) — a one-off cost that inflates p95 / p99. "
-        "Once warm, subsequent calls take <50 ms on the stub backend. With Ollama "
-        "in the loop the picture flips: LLM round-trips in `query_rewrite`, "
-        "`rerank` and especially `compliance_synthesizer` dominate, typically 70%+ "
-        "of wall time per request.\n"
+        "Methodology: one warm-up request is issued before timing so the "
+        "Chroma client, BM25 index, and LLM cache are hot. Reported numbers "
+        "therefore reflect steady-state, not cold-start. With Ollama in the "
+        "loop the picture changes: LLM round-trips in `query_rewrite`, "
+        "`rerank` and especially `compliance_synthesizer` dominate (typically "
+        "70%+ of wall time per request).\n"
     )
 
     lines.append("## Two concrete optimisations\n")

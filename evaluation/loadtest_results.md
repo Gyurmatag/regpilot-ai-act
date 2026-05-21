@@ -5,26 +5,26 @@ Backend: `stub` (chat=`qwen2.5:3b-instruct`, embed=`nomic-embed-text`).
 - Total requests: **100**
 - Concurrency (semaphore): **8**
 - Wall-clock: **1.28 s**
-- Throughput: **77.94 req/s**
-- Latency (s): min 0.001 · **p50 0.070** · p95 0.509 · p99 0.525 · max 0.538 · mean 0.101
-- Peak RSS: **223 MB** — CPU% (process): **238%**
+- Throughput: **78.00 req/s**
+- Latency (s): min 0.001 · **p50 0.069** · p95 0.533 · p99 0.553 · max 0.555 · mean 0.101
+- Peak RSS: **218 MB** — CPU% (process): **212%**
 - Tier distribution: `{'prohibited': 21, 'high_risk': 42, 'limited_risk': 19, 'minimal_risk': 18}`
 
 ## Per-node breakdown
 
 | node | calls | mean (ms) | p95 (ms) | total (s) | share |
 | --- | --- | --- | --- | --- | --- |
-| rag_retrieval | 79 | 123.24 | 500.32 | 9.736 | 99.6% |
-| validator | 79 | 0.21 | 0.03 | 0.017 | 0.2% |
-| risk_triage | 100 | 0.11 | 0.14 | 0.011 | 0.1% |
+| rag_retrieval | 79 | 123.35 | 533.96 | 9.745 | 99.4% |
+| validator | 79 | 0.44 | 0.02 | 0.035 | 0.4% |
+| risk_triage | 100 | 0.15 | 0.17 | 0.015 | 0.1% |
+| compliance_synthesizer | 79 | 0.07 | 0.09 | 0.006 | 0.1% |
 | intake_classifier | 100 | 0.03 | 0.04 | 0.003 | 0.0% |
-| compliance_synthesizer | 79 | 0.04 | 0.05 | 0.003 | 0.0% |
-| obligation_mapper | 79 | 0.02 | 0.03 | 0.001 | 0.0% |
+| obligation_mapper | 79 | 0.02 | 0.02 | 0.001 | 0.0% |
 | prohibited_path | 21 | 0.01 | 0.01 | 0.000 | 0.0% |
 
-**Identified bottleneck:** `rag_retrieval` (largest share of node wall time).
+**Identified bottleneck:** `rag_retrieval` (largest share of node wall time, post warm-up).
 
-The first call to `rag_retrieval` builds the BM25 index from the entire Chroma corpus (~840 chunks) — a one-off cost that inflates p95 / p99. Once warm, subsequent calls take <50 ms on the stub backend. With Ollama in the loop the picture flips: LLM round-trips in `query_rewrite`, `rerank` and especially `compliance_synthesizer` dominate, typically 70%+ of wall time per request.
+Methodology: one warm-up request is issued before timing so the Chroma client, BM25 index, and LLM cache are hot. Reported numbers therefore reflect steady-state, not cold-start. With Ollama in the loop the picture changes: LLM round-trips in `query_rewrite`, `rerank` and especially `compliance_synthesizer` dominate (typically 70%+ of wall time per request).
 
 ## Two concrete optimisations
 
