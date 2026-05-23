@@ -331,13 +331,25 @@ def _render_trace(state: RegPilotState) -> None:
 
     retrieved = state.get("retrieved") or []
     if retrieved:
-        with st.expander(f"Cited evidence ({len(retrieved)} chunks)", expanded=False):
-            for c in retrieved:
+        # The raw score is a Reciprocal Rank Fusion sum (small absolute numbers
+        # by design); normalise against the top hit so the user sees a 0–1
+        # relevance instead of "0.030", which reads as low when it's actually
+        # ~max for RRF with k=60.
+        max_score = max((c.get("score") or 0.0) for c in retrieved) or 1.0
+        with st.expander(
+            f"Cited evidence ({len(retrieved)} chunks · relevance normalised vs. top hit)",
+            expanded=False,
+        ):
+            for i, c in enumerate(retrieved, start=1):
+                raw = c.get("score", 0.0) or 0.0
+                rel = raw / max_score
                 head = (
                     f"<div class='rp-cite-head'>"
-                    f"<strong>Art. {html.escape(str(c.get('article') or '?'))} "
+                    f"<strong>#{i} &middot; Art. {html.escape(str(c.get('article') or '?'))} "
                     f"p{html.escape(str(c.get('paragraph') or '?'))}</strong> "
-                    f"&middot; score <code>{c.get('score', 0):.3f}</code>"
+                    f"&middot; relevance <code>{rel:.0%}</code> "
+                    f"<span style='opacity:.55;font-size:.75rem;'>"
+                    f"(RRF {raw:.3f})</span>"
                     f"</div>"
                 )
                 body = html.escape((c.get("text") or "")[:500])
