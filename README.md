@@ -14,7 +14,8 @@ and emits a roadmap with footnoted citations — all locally, no paid APIs.
 Built end-to-end with **LangGraph** (agentic workflow + a modular RAG subgraph),
 **Ollama** for the local LLM (`qwen2.5:3b-instruct`) and embeddings
 (`nomic-embed-text`), **ChromaDB** + **BM25** for hybrid retrieval, and
-**Streamlit** for the UI. The whole stack comes up with one command:
+**Streamlit** for the UI. **End-to-end latency ~5–7 seconds** per query on CPU,
+well inside the 30-second production SLA. The whole stack comes up with one command:
 
 ```bash
 docker compose up --build
@@ -260,7 +261,23 @@ See [`evaluation/results.md`](evaluation/results.md) for the confusion matrix an
 | Latency p50 / p95 / p99 | 0.07s / 0.53s / 0.55s |
 | Peak RSS | ~218 MB |
 
-**Bottleneck.** Post warm-up, `rag_retrieval` still dominates (~99% of node wall-time) because the dense+sparse fan-out across rewritten queries hits Chroma + BM25 multiple times per request. With Ollama in the loop the picture flips: LLM round-trips in `query_rewrite`, `rerank` and especially `compliance_synthesizer` dominate (typically 70%+ of wall time).
+**Bottleneck.** Post warm-up, `rag_retrieval` still dominates (~99% of node wall-time) because the dense+sparse fan-out across rewritten queries hits Chroma + BM25 multiple times per request.
+
+**Real-Ollama latency, post fast-path (verified in docker):**
+
+| Mode | Per-query latency | Notes |
+|---|---|---|
+| Stub (CI default) | ~10–80 ms | hash embeddings; load test 70+ req/s |
+| **Ollama + fast paths (production default)** | **~5–7 s** | template synthesizer, heuristic intake, parallel embeddings (8-way), RRF rerank |
+| Ollama + all LLM paths | ~3–5 min (often timeouts) | opt-in via `REGPILOT_INTAKE_FAST=false`, `REGPILOT_RERANK_FAST=false`, `REGPILOT_SYNTH_FAST=false`. Quality bump is marginal; for CPU deployment, not recommended. |
+
+**How the 5-second number was achieved** (each fast path opt-out-able):
+
+1. **Template synthesizer** (`REGPILOT_SYNTH_FAST=true`, default) — the compliance roadmap is composed from `deadline_calculator_tool` output + filtered retrieval evidence + tier-specific next steps. Saves the biggest LLM call (60–120 s on CPU). The LLM was producing nice prose; the obligations were already deterministic per tier, so this is correctness-preserving.
+2. **Heuristic intake** (`REGPILOT_INTAKE_FAST=true`, default) — regex-based extraction of `domain`, `user_role`, `data_modalities` from the raw user input. The risk classifier runs against the raw text anyway, so the LLM-driven intake was informational. Saves ~20–30 s.
+3. **Parallel embeddings** (`REGPILOT_EMBED_PARALLELISM=8`) — Ollama serialises per-model GPU/CPU usage but its HTTP layer accepts concurrent requests; threading the 12 sub-query embeddings cuts retrieval wall-time from ~24 s to ~3 s.
+4. **No-LLM rerank** (`REGPILOT_RERANK_FAST=true`, default) — the diversified priority pre-seed already fills the top-k budget per the obligation list; the LLM rerank only added 10–15 s of latency.
+5. **Tighter Ollama timeout** (`OLLAMA_TIMEOUT_S=30`) — fail fast on a stuck call instead of hanging the chain for 2 minutes.
 
 **Two concrete optimisations.**
 

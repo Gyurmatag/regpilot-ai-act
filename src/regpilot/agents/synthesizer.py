@@ -2,12 +2,26 @@
 
 Turns retrieved chunks + obligations + the risk verdict into a Markdown report.
 The report must cite Articles in ``Art. N`` form so the validator can verify them.
+
+There are two paths:
+
+* **Fast (default, ``REGPILOT_SYNTH_FAST=true``)** — deterministic template that
+  composes obligations + retrieved evidence + tier-specific next steps. No LLM
+  call, no timeouts, returns in <50 ms. This is the production default because
+  the obligations are already deterministic per tier; the LLM was adding flair,
+  not correctness.
+* **LLM** — qwen2.5:3b-instruct (or whatever Ollama serves). Set
+  ``REGPILOT_SYNTH_FAST=false`` to opt in. Used to be the default; on CPU it
+  routinely needed 60–120 s and timed out under load.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
+from typing import Any
 
+from regpilot.config import settings
 from regpilot.llm import LLMClient, get_llm
 from regpilot.state import RegPilotState, TraceEvent
 
@@ -59,13 +73,21 @@ draft report for tier {tier}
 
 
 def compliance_synthesizer(state: RegPilotState) -> RegPilotState:
-    llm: LLMClient = get_llm()
-
-    structured = state.get("structured", {})
+    structured = state.get("structured", {}) or {}
     tier = state.get("risk_tier", "minimal_risk")
-    obligations = state.get("obligations", [])
-    retrieved = state.get("retrieved", [])
+    obligations = state.get("obligations", []) or []
+    retrieved = state.get("retrieved", []) or []
 
+    # Fast path — deterministic template, no LLM call. This is the production
+    # default; obligations and citations are already correct via the
+    # deadline_calculator + RAG retrieval, the LLM was only adding flavour
+    # text that cost 60–120 s on CPU.
+    if settings.synth_fast:
+        draft = _template_report(structured, tier, obligations, retrieved)
+        return _emit(state, draft, mode="template")
+
+    # LLM path — opt-in via REGPILOT_SYNTH_FAST=false.
+    llm: LLMClient = get_llm()
     obligations_md = (
         "\n".join(
             f"- {o['applies_from']} — {o['article']}: {o['obligation']}"
@@ -96,42 +118,131 @@ def compliance_synthesizer(state: RegPilotState) -> RegPilotState:
         draft = llm.generate(prompt, system=_SYSTEM, temperature=0.2, max_tokens=900)
     except Exception as exc:
         logger.warning("synthesizer LLM failed: %s — emitting template fallback", exc)
-        draft = _fallback_report(structured, tier, obligations, retrieved)
+        draft = _template_report(structured, tier, obligations, retrieved)
 
     if not draft.strip():
-        draft = _fallback_report(structured, tier, obligations, retrieved)
+        draft = _template_report(structured, tier, obligations, retrieved)
 
+    return _emit(state, draft, mode="llm")
+
+
+def _emit(state: RegPilotState, draft: str, *, mode: str) -> RegPilotState:
     return {
         "draft_report": draft.strip(),
         "trace": [
             *state.get("trace", []),
             TraceEvent(
                 node="compliance_synthesizer",
-                summary=f"drafted report ({len(draft)} chars)",
-                payload={"length": len(draft)},
+                summary=f"drafted report ({len(draft)} chars, mode={mode})",
+                payload={"length": len(draft), "mode": mode},
             ),
         ],
     }
 
 
-def _fallback_report(structured, tier, obligations, retrieved) -> str:
-    cited = sorted({o["article"] for o in obligations})
-    bullets = "\n".join(
-        f"- **{o['applies_from']} — {o['article']}**: {o['obligation']}"
-        for o in obligations
+# --------------------------------------------------------------------------- #
+# Fast-path template
+# --------------------------------------------------------------------------- #
+
+
+_NEXT_STEPS: dict[str, list[str]] = {
+    "high_risk": [
+        "Confirm the risk classification and applicable Annex III area with legal counsel.",
+        "Map each obligation in the table to an internal owner and target date.",
+        "Compile technical documentation per Annex IV (Art. 11) and prepare for the conformity assessment (Art. 43).",
+        "Register the system in the EU database before placing it on the market (Art. 49).",
+        "Establish post-market monitoring and a serious-incident reporting workflow (Art. 72).",
+    ],
+    "limited_risk": [
+        "Implement the Article 50 transparency disclosures in the user-facing flow.",
+        "Label any AI-generated or AI-modified media (deepfakes, synthetic text).",
+        "Track Article 50 implementing guidance from the AI Office as it is published.",
+    ],
+    "minimal_risk": [
+        "No mandatory obligations apply, but adopt a voluntary code of conduct per Article 95.",
+        "Re-check classification annually as the system evolves.",
+        "Apply general data-protection and product-liability law as a baseline.",
+    ],
+    "prohibited": [
+        "Do not place the system on the EU market or put it into service.",
+        "Consult legal counsel on remediation, redesign, or withdrawal.",
+        "Communicate the change to internal stakeholders and customers.",
+    ],
+    "unknown": [
+        "Re-classify with a more detailed system description.",
+        "Engage legal counsel for a definitive interpretation.",
+    ],
+}
+
+
+_TIER_LABEL: dict[str, str] = {
+    "high_risk": "High risk",
+    "limited_risk": "Limited risk",
+    "minimal_risk": "Minimal risk",
+    "prohibited": "Prohibited",
+    "unknown": "Unknown",
+}
+
+
+def _template_report(
+    structured: Mapping[str, Any],
+    tier: str,
+    obligations: Sequence[Mapping[str, Any]],
+    retrieved: Sequence[Mapping[str, Any]],
+) -> str:
+    tier_label = _TIER_LABEL.get(tier, tier)
+    cited_articles = sorted({str(o["article"]).replace("Art. ", "") for o in obligations})
+    cited_str = ", ".join(f"Art. {a}" for a in cited_articles) or "Art. 6"
+
+    obligation_bullets = (
+        "\n".join(
+            f"- **{o['applies_from']} — {o['article']}**: {o['obligation']}"
+            for o in obligations
+        )
+        or "- No mandatory obligations apply at this tier."
     )
-    # Plain string (no leading indentation) so Streamlit's markdown parser
-    # doesn't treat the block as a fenced code section.
+
+    # Evidence excerpts — filter to chunks whose Article is in the obligation
+    # set, so the report only quotes Articles it already cites. This keeps
+    # citation precision tight without sacrificing reader trust (every quote
+    # is anchored to an obligation in the table above).
+    obligation_arts = {str(o["article"]).replace("Art. ", "") for o in obligations}
+    relevant = [c for c in retrieved if (c.get("article") or "") in obligation_arts]
+    sorted_evidence = sorted(
+        relevant, key=lambda c: c.get("score") or 0.0, reverse=True
+    )[:3]
+    evidence_md = (
+        "\n\n".join(
+            f"> **Art. {c.get('article') or '?'} (p{c.get('paragraph') or '?'})** — "
+            f"{(c.get('text') or '').strip()[:280]}…"
+            for c in sorted_evidence
+        )
+        or "_(no retrieved evidence — see the trace panel for the full chunk list.)_"
+    )
+
+    steps = _NEXT_STEPS.get(tier, _NEXT_STEPS["unknown"])
+    steps_md = "\n".join(f"{i}. {s}" for i, s in enumerate(steps, start=1))
+
+    purpose = structured.get("system_purpose") or "the described AI system"
+    domain = structured.get("domain") or "general"
+    role = structured.get("user_role") or "unknown"
+
     return (
         f"## Executive summary\n"
-        f"The described system is classified as **{tier}** under the EU AI Act.\n\n"
+        f"**{purpose}** is classified as **{tier_label}** under the EU AI Act. "
+        f"This roadmap lists the {len(obligations)} concrete obligation(s) that apply, "
+        f"along with their Article 113 phased deadlines.\n\n"
         f"## Risk classification\n"
-        f"Based on the intake, the system falls into the *{tier}* tier. "
-        f"Relevant Articles: {', '.join(cited) or 'n/a'}.\n\n"
+        f"- **Tier**: {tier_label}\n"
+        f"- **Domain**: {domain}\n"
+        f"- **User role**: {role}\n"
+        f"- **Applicable Articles**: {cited_str}\n\n"
         f"## Obligations & deadlines\n"
-        f"{bullets or '- No mandatory obligations.'}\n\n"
+        f"{obligation_bullets}\n\n"
+        f"## Evidence excerpts\n"
+        f"{evidence_md}\n\n"
         f"## Recommended next steps\n"
-        f"1. Confirm the classification with legal counsel.\n"
-        f"2. Map obligations to internal owners and target dates.\n"
-        f"3. Establish documentation per Annex IV (if high-risk).\n"
+        f"{steps_md}\n"
     )
+
+

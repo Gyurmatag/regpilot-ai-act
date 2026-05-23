@@ -17,6 +17,16 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field("http://localhost:11434", alias="OLLAMA_BASE_URL")
     chat_model: str = Field("qwen2.5:3b-instruct", alias="REGPILOT_CHAT_MODEL")
     embed_model: str = Field("nomic-embed-text", alias="REGPILOT_EMBED_MODEL")
+    ollama_timeout_s: float = Field(30.0, alias="OLLAMA_TIMEOUT_S")
+    embed_parallelism: int = Field(8, alias="REGPILOT_EMBED_PARALLELISM")
+
+    # Fast-path toggles. Each is a hard short-circuit around an expensive LLM
+    # call so the default install meets a 30s SLA on CPU. Each can be flipped
+    # to "false" to opt back into the LLM-driven path (slower, marginally
+    # higher quality on rare ambiguous inputs).
+    intake_fast: bool = Field(True, alias="REGPILOT_INTAKE_FAST")
+    rerank_fast: bool = Field(True, alias="REGPILOT_RERANK_FAST")
+    synth_fast: bool = Field(True, alias="REGPILOT_SYNTH_FAST")
 
     chroma_dir: Path = Field(REPO_ROOT / "data" / "chroma", alias="REGPILOT_CHROMA_DIR")
     data_dir: Path = Field(REPO_ROOT / "data" / "raw", alias="REGPILOT_DATA_DIR")

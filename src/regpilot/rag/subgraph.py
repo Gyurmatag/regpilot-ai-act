@@ -135,41 +135,48 @@ def _rerank(state: RAGState, llm: LLMClient) -> RAGState:
         art = c.get("article") or ""
         if art in priority and art not in by_article:
             by_article[art] = c
-    # Order matches priority order (which mirrors the obligation list).
     priority_hits = [by_article[a] for a in priority if a in by_article][:top_k]
 
     remaining_budget = top_k - len(priority_hits)
     chosen_ids = {c["id"] for c in priority_hits}
     non_priority = [c for c in candidates if c["id"] not in chosen_ids]
 
-    fill: list = []
-    if remaining_budget > 0:
-        blocks = "\n\n".join(
-            f"[{i}] Art. {c.get('article') or '?'} — {c['text'][:400]}"
-            for i, c in enumerate(non_priority)
+    # Fast path #1 — priority budget already full → no LLM call needed.
+    if remaining_budget <= 0 or not non_priority:
+        return {"reranked": priority_hits}
+
+    # Fast path #2 — REGPILOT_RERANK_FAST=true (default) → fill the remaining
+    # slots in RRF order. Saves a 10–15 s LLM call on CPU.
+    if settings.rerank_fast:
+        return {"reranked": [*priority_hits, *non_priority[:remaining_budget]]}
+
+    # LLM rerank path — opt-in via REGPILOT_RERANK_FAST=false.
+    blocks = "\n\n".join(
+        f"[{i}] Art. {c.get('article') or '?'} — {c['text'][:400]}"
+        for i, c in enumerate(non_priority)
+    )
+    try:
+        raw = llm.generate(
+            RERANK_PROMPT.format(
+                n=len(non_priority),
+                top_k=remaining_budget,
+                query=state["query"],
+                candidates=blocks,
+            ),
+            system=RERANK_SYSTEM,
+            temperature=0.0,
+            max_tokens=64,
         )
-        try:
-            raw = llm.generate(
-                RERANK_PROMPT.format(
-                    n=len(non_priority),
-                    top_k=remaining_budget,
-                    query=state["query"],
-                    candidates=blocks,
-                ),
-                system=RERANK_SYSTEM,
-                temperature=0.0,
-                max_tokens=64,
-            )
-            idxs = [int(i) for i in _safe_json_list(raw) if isinstance(i, (int, float, str))]
-            idxs = [i for i in idxs if 0 <= i < len(non_priority)][:remaining_budget]
-        except Exception as exc:
-            logger.warning("LLM rerank failed (%s) — falling back to RRF order.", exc)
-            idxs = []
-        fill = (
-            [non_priority[i] for i in idxs]
-            if idxs
-            else non_priority[:remaining_budget]
-        )
+        idxs = [int(i) for i in _safe_json_list(raw) if isinstance(i, (int, float, str))]
+        idxs = [i for i in idxs if 0 <= i < len(non_priority)][:remaining_budget]
+    except Exception as exc:
+        logger.warning("LLM rerank failed (%s) — falling back to RRF order.", exc)
+        idxs = []
+    fill = (
+        [non_priority[i] for i in idxs]
+        if idxs
+        else non_priority[:remaining_budget]
+    )
 
     return {"reranked": [*priority_hits, *fill]}
 

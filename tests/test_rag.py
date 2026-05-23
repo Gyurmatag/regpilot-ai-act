@@ -38,9 +38,11 @@ def test_hybrid_retrieval_combines_both(retriever: HybridRetriever) -> None:
 
 
 def test_rag_subgraph_runs_end_to_end() -> None:
+    from regpilot.config import settings
+
     sg = build_rag_subgraph()
     out = sg.invoke({"query": "exam proctoring system used in universities"})
     compressed = out.get("compressed") or []
     assert compressed, "subgraph returned no compressed chunks"
     assert all("score" in c for c in compressed)
-    assert len(compressed) <= 5
+    assert len(compressed) <= settings.top_k_rerank
