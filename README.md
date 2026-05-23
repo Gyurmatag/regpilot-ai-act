@@ -299,16 +299,19 @@ See [`evaluation/results.md`](evaluation/results.md) for the confusion matrix an
 
 ## 7. Tests & CI
 
-`make test` runs **42 tests in ~2 s** with **73% line coverage**:
+`make test` runs **75 tests in ~10 s** with **93% line coverage** (CI gate at 90%):
 
 * `tests/test_tools.py` — risk classifier across all four tiers, deadline calculator phase math, citation validator pass/fail cases.
 * `tests/test_chunker.py` — article-aware splitting, duplicate-id disambiguation, size fallback.
 * `tests/test_rag.py` — dense + sparse + hybrid retrieval, full RAG subgraph end-to-end.
-* `tests/test_graph.py` — main workflow per tier, prohibited short-circuit (with pre-loaded evidence), validator-loop bounds, trace completeness.
+* `tests/test_graph.py` — main workflow per tier, prohibited short-circuit (with pre-loaded evidence), validator-loop bounds, trace completeness, `thread_id` regression guard for the SqliteSaver checkpointer.
 * `tests/test_gpai.py` — General-Purpose AI tier: Art. 53/54/55 deadline math, systemic-risk obligations, end-to-end report covers GPAI Articles.
 * `tests/test_observability.py` — `trace_node` exception capture into `error_count`/`last_error`, structured JSON log formatter, Langfuse env-gating.
+* `tests/test_llm.py` — OllamaClient mocked-httpx happy path, HTTP 503 retry + exhaust, parallel embed ordering, whitespace-input substitution, `get_llm()` factory + fallback when Ollama unreachable.
+* `tests/test_loader.py` — page cleaner regexes, PDF download caching, EUR-Lex content-negotiation headers, refusal of non-PDF responses (CloudFront WAF challenge page), per-page extraction with broken-page survival.
+* `tests/test_llm_paths.py` — non-default LLM branches in `intake_classifier`, `compliance_synthesizer`, and the RAG subgraph rerank (covers what `*_FAST=false` actually does).
 
-GitHub Actions [`ci.yml`](.github/workflows/ci.yml) runs `ruff check` + `mypy src` + `pytest --cov=regpilot --cov-fail-under=70` on every push and PR to `main`, all with `REGPILOT_LLM=stub` so the suite stays offline and fast. The whole pipeline finishes in under a minute.
+GitHub Actions [`ci.yml`](.github/workflows/ci.yml) runs `ruff check` + `mypy src` + `pytest --cov=regpilot --cov-fail-under=90` on every push and PR to `main`, all with `REGPILOT_LLM=stub` so the suite stays offline and fast. The whole pipeline finishes in under a minute.
 
 ---
 

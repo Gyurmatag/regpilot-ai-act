@@ -20,10 +20,10 @@ lint: ## Ruff lint (CI gate).
 type: ## Mypy static type check (CI gate).
 	$(PY) -m mypy src
 
-test: ## Pytest with coverage gate (CI gate).
-	$(STUB) $(PY) -m pytest --cov=regpilot --cov-fail-under=70
+test: ## Pytest with coverage gate (CI gate, 90%).
+	$(STUB) $(PY) -m pytest --cov=regpilot --cov-fail-under=90
 
-cov: ## Pytest with coverage report.
+cov: ## Pytest with coverage report (line-level Missing column).
 	$(STUB) $(PY) -m pytest --cov=regpilot --cov-report=term-missing
 
 eval: ## Functional eval against the 16-question gold set.
