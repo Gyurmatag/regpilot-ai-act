@@ -334,22 +334,35 @@ def _render_trace(state: RegPilotState) -> None:
         # The raw score is a Reciprocal Rank Fusion sum (small absolute numbers
         # by design); normalise against the top hit so the user sees a 0–1
         # relevance instead of "0.030", which reads as low when it's actually
-        # ~max for RRF with k=60.
-        max_score = max((c.get("score") or 0.0) for c in retrieved) or 1.0
+        # ~max for RRF with k=60. Some branches (e.g. prohibited short-circuit)
+        # pre-load deterministic evidence with score=0 — for those we hide the
+        # relevance row instead of showing a misleading 0%.
+        max_score = max((c.get("score") or 0.0) for c in retrieved)
+        has_scores = max_score > 0
+        label_suffix = " · relevance normalised vs. top hit" if has_scores else ""
         with st.expander(
-            f"Cited evidence ({len(retrieved)} chunks · relevance normalised vs. top hit)",
+            f"Cited evidence ({len(retrieved)} chunks{label_suffix})",
             expanded=False,
         ):
             for i, c in enumerate(retrieved, start=1):
                 raw = c.get("score", 0.0) or 0.0
-                rel = raw / max_score
+                if has_scores:
+                    rel = raw / max_score
+                    score_html = (
+                        f" &middot; relevance <code>{rel:.0%}</code> "
+                        f"<span style='opacity:.55;font-size:.75rem;'>"
+                        f"(RRF {raw:.3f})</span>"
+                    )
+                else:
+                    score_html = (
+                        " <span style='opacity:.55;font-size:.75rem;'>"
+                        "(pre-loaded evidence)</span>"
+                    )
                 head = (
                     f"<div class='rp-cite-head'>"
                     f"<strong>#{i} &middot; Art. {html.escape(str(c.get('article') or '?'))} "
-                    f"p{html.escape(str(c.get('paragraph') or '?'))}</strong> "
-                    f"&middot; relevance <code>{rel:.0%}</code> "
-                    f"<span style='opacity:.55;font-size:.75rem;'>"
-                    f"(RRF {raw:.3f})</span>"
+                    f"p{html.escape(str(c.get('paragraph') or '?'))}</strong>"
+                    f"{score_html}"
                     f"</div>"
                 )
                 body = html.escape((c.get("text") or "")[:500])

@@ -56,6 +56,8 @@ class RegPilotState(TypedDict, total=False):
     risk_rationale: str
     annex_iii_matches: list[str]
     rag_query: str
+    rag_queries: list[str]         # NEW: multi-query expansion from triage
+    priority_articles: list[str]   # NEW: tier-derived obligation Articles to boost
     retrieved: list[RetrievedChunk]
     obligations: list[dict[str, Any]]
     deadlines: dict[str, Any]
@@ -71,6 +73,7 @@ class RAGState(TypedDict, total=False):
 
     query: str
     rewritten_queries: list[str]
+    priority_articles: list[str]
     candidates: list[RetrievedChunk]
     reranked: list[RetrievedChunk]
     compressed: list[RetrievedChunk]

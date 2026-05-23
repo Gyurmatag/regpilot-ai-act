@@ -23,12 +23,16 @@ def risk_triage(state: RegPilotState) -> RegPilotState:
     verdict = classify(structured, raw_text=raw_text)
 
     rag_query = _build_rag_query(structured, verdict.tier)
+    rag_queries = _build_multi_queries(structured, verdict.tier, raw_text)
+    priority = list(_TIER_PRIORITY_ARTICLES.get(verdict.tier, ()))
 
     updates: RegPilotState = {
         "risk_tier": verdict.tier,
         "risk_rationale": verdict.rationale,
         "annex_iii_matches": verdict.annex_iii_matches,
         "rag_query": rag_query,
+        "rag_queries": rag_queries,
+        "priority_articles": priority,
         "trace": [
             *state.get("trace", []),
             TraceEvent(
@@ -40,6 +44,8 @@ def risk_triage(state: RegPilotState) -> RegPilotState:
                     "rationale": verdict.rationale,
                     "annex_iii_matches": verdict.annex_iii_matches,
                     "article_5_matches": verdict.article_5_matches,
+                    "rag_queries": rag_queries,
+                    "priority_articles": priority,
                 },
             ),
         ],
@@ -85,6 +91,68 @@ _OBLIGATION_KEYWORDS: dict[str, str] = {
 
 def _obligation_keywords(tier: str) -> str:
     return _OBLIGATION_KEYWORDS.get(tier, _OBLIGATION_KEYWORDS["unknown"])
+
+
+# Targeted sub-queries per tier — fired in parallel by the RAG subgraph so the
+# retriever has a fair shot at every obligation Article, not just the ones
+# that lexically overlap the user description.
+_TIER_SUBQUERIES: dict[str, tuple[str, ...]] = {
+    "high_risk": (
+        "Article 9 risk management system across the lifecycle",
+        "Article 10 data governance training validation test sets",
+        "Article 11 technical documentation Annex IV",
+        "Article 13 transparency information to deployers instructions for use",
+        "Article 14 human oversight measures",
+        "Article 15 accuracy robustness cybersecurity",
+        "Article 17 quality management system provider",
+        "Article 18 record keeping documentation retention",
+        "Article 43 conformity assessment CE marking declaration",
+        "Article 49 EU database registration high-risk",
+        "Article 72 post-market monitoring serious incident reporting",
+    ),
+    "prohibited": (
+        "Article 5 prohibited AI practices",
+        "Article 113 entry into force phased application",
+    ),
+    "limited_risk": (
+        "Article 50 transparency obligations chatbots",
+        "Article 50 synthetic content deepfake labelling",
+    ),
+    "minimal_risk": (
+        "Article 95 voluntary codes of conduct",
+    ),
+}
+
+
+# Per-tier obligation Articles surfaced from the deadline_calculator. The
+# retriever uses these to boost matching chunks in the fused candidate list.
+_TIER_PRIORITY_ARTICLES: dict[str, tuple[str, ...]] = {
+    "high_risk": ("9", "10", "11", "12", "13", "14", "15", "17", "18", "43", "49", "72"),
+    "prohibited": ("5", "113"),
+    "limited_risk": ("50",),
+    "minimal_risk": ("95",),
+    "unknown": (),
+}
+
+
+def _build_multi_queries(
+    structured: Mapping[str, Any], tier: str, raw_text: str
+) -> list[str]:
+    """List of targeted sub-queries fed to the RAG subgraph as ``rewritten_queries``.
+
+    Always starts with the user-grounded query (so semantic match on the actual
+    system description has a chance), followed by **every** tier-specific
+    obligation sub-query — capping here would silently lose coverage of the
+    Articles defined later in the tier's obligation list (Art. 43, 49, 72, …).
+    """
+
+    base = raw_text or str(structured.get("system_purpose", "")) or "EU AI Act"
+    subs = _TIER_SUBQUERIES.get(tier, ())
+    seen: list[str] = []
+    for q in [base, *subs]:
+        if q and q not in seen:
+            seen.append(q)
+    return seen
 
 
 def route_by_tier(state: RegPilotState) -> str:

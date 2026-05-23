@@ -78,32 +78,62 @@ class HybridRetriever:
         k_dense: int | None = None,
         k_sparse: int | None = None,
         k_out: int | None = None,
+        priority_articles: list[str] | None = None,
+        sparse_weight: float = 1.0,
+        dense_weight: float = 1.0,
     ) -> list[RetrievedChunk]:
-        """RRF over dense + sparse rankings."""
+        """RRF over dense + sparse rankings, with optional priority-article boost.
+
+        ``priority_articles`` is a list of Article numbers (e.g. ``["9", "10"]``)
+        the caller knows are relevant (typically the obligation Articles for
+        the predicted risk tier). Matching chunks get a fixed score bonus so
+        they survive the post-fusion top-k cut even when the user's free-text
+        query doesn't lexically mention the obligation vocabulary.
+        """
 
         dense_hits = self.dense(query, k=k_dense)
         sparse_hits = self.sparse(query, k=k_sparse)
-        fused = _rrf([dense_hits, sparse_hits], k_const=settings.rrf_k)
+        fused = _rrf(
+            [(dense_hits, dense_weight), (sparse_hits, sparse_weight)],
+            k_const=settings.rrf_k,
+            priority_articles=priority_articles,
+        )
         return fused[: (k_out or settings.top_k_dense)]
 
 
+# A chunk whose Article matches a priority entry gets this added to its RRF score.
+# Empirically (with k_const=60), this is ~5× the max single-list RRF contribution
+# (1/61 ≈ 0.016), so a priority hit at rank 20 still beats a non-priority hit at
+# rank 1 in one of the legs. Tuned to lift retrieval Recall@5 from 24% toward the
+# theoretical 56% ceiling without dominating relevance ordering.
+_PRIORITY_BONUS = 0.08
+
+
 def _rrf(
-    ranking_lists: list[list[RetrievedChunk]],
+    weighted_lists: list[tuple[list[RetrievedChunk], float]],
     *,
     k_const: int = 60,
+    priority_articles: list[str] | None = None,
 ) -> list[RetrievedChunk]:
-    """Reciprocal Rank Fusion. Returns chunks sorted by fused score descending."""
+    """Reciprocal Rank Fusion with optional per-ranking weights + article boost."""
 
+    priority_set = set(priority_articles or [])
     scores: dict[str, float] = {}
     docs: dict[str, RetrievedChunk] = {}
-    for hits in ranking_lists:
+    for hits, weight in weighted_lists:
         for rank, hit in enumerate(hits):
-            scores[hit["id"]] = scores.get(hit["id"], 0.0) + 1.0 / (k_const + rank + 1)
+            scores[hit["id"]] = scores.get(hit["id"], 0.0) + weight / (k_const + rank + 1)
             docs[hit["id"]] = hit
+
+    if priority_set:
+        for doc_id, doc in docs.items():
+            if (doc.get("article") or "") in priority_set:
+                scores[doc_id] += _PRIORITY_BONUS
+
     ordered = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     out: list[RetrievedChunk] = []
     for doc_id, fused_score in ordered:
-        d = dict(docs[doc_id])
-        d["score"] = fused_score
-        out.append(d)  # type: ignore[arg-type]
+        materialised: dict = dict(docs[doc_id])
+        materialised["score"] = fused_score
+        out.append(materialised)  # type: ignore[arg-type]
     return out

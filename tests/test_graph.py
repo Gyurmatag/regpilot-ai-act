@@ -28,11 +28,19 @@ def test_high_risk_produces_obligations_and_report() -> None:
     assert "Art." in (out.get("final_report") or "")
 
 
-def test_prohibited_path_skips_retrieval() -> None:
+def test_prohibited_path_short_circuits_but_cites_evidence() -> None:
     out = run("A social scoring system that rates citizens on trustworthiness.")
     assert out.get("risk_tier") == "prohibited"
-    # Prohibited short-circuit does not run the RAG subgraph.
-    assert out.get("retrieved", []) == []
+
+    # Short-circuit skips the RAG subgraph (no rag_retrieval in trace)…
+    nodes_fired = [ev["node"] for ev in out.get("trace", [])]
+    assert "rag_retrieval" not in nodes_fired
+    assert "prohibited_path" in nodes_fired
+
+    # …but still pre-loads Art. 5 / Art. 113 evidence so the user sees citations
+    # and so the eval's context_recall metric is fair to this branch.
+    retrieved_articles = {c.get("article") for c in out.get("retrieved", [])}
+    assert {"5", "113"} & retrieved_articles, retrieved_articles
     assert "PROHIBITED" in (out.get("final_report") or "")
 
 

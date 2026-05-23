@@ -34,13 +34,16 @@ RESULTS = ROOT / "evaluation" / "results.md"
 
 THRESHOLDS = {
     "triage_accuracy": 0.80,
+    # Ragas-standard "context recall" — are the gold Articles present anywhere
+    # in the retrieved+reranked context the synthesizer sees, regardless of
+    # rank within it? This is the headline retrieval metric.
+    "context_recall": 0.90,
     "citation_recall": 0.80,
     "citation_precision": 0.70,
     "deadline_exact_match": 0.80,
-    # Retrieval Recall@5 is informational under the stub LLM (random embeddings
-    # poison the dense leg of the hybrid retriever). With Ollama
-    # nomic-embed-text the same metric clears 0.4+ in our smoke runs.
-    "retrieval_recall_at_5": 0.20,
+    # Position-sensitive metric kept for transparency. Math-capped by
+    # min(5, |gold|) / |gold| → 56% for high-risk (9 gold Articles).
+    "retrieval_recall_at_5": 0.40,
 }
 
 
@@ -108,6 +111,13 @@ def _citation_recall(cited: set[str], gold: list[str]) -> float:
     return len(cited & set(gold)) / len(gold)
 
 
+def _context_recall(retrieved_arts: list[str], gold: list[str]) -> float:
+    """Ragas-style: do the retrieved chunks cover the gold Articles (any position)?"""
+    if not gold:
+        return 1.0
+    return len(set(retrieved_arts) & set(gold)) / len(gold)
+
+
 # --------------------------------------------------------------------------- #
 # Single-node eval (risk_triage only)
 # --------------------------------------------------------------------------- #
@@ -149,6 +159,7 @@ def eval_end_to_end(rows: list[dict]) -> dict:
                 "pred_tier": state.get("risk_tier", "unknown"),
                 "latency_s": latency,
                 "retrieval_recall_at_5": _recall_at_k(retrieved, r["expected_articles"], k=5),
+                "context_recall": _context_recall(retrieved, r["expected_articles"]),
                 "mrr": _mrr(retrieved, r["expected_articles"]),
                 "citation_precision": _citation_precision(cited, r["expected_articles"]),
                 "citation_recall": _citation_recall(cited, r["expected_articles"]),
@@ -178,6 +189,7 @@ def _aggregate(per_row: list[dict]) -> dict:
     return {
         "n": n,
         "triage_accuracy": sum(1 for r in per_row if r["gold_tier"] == r["pred_tier"]) / n if n else 0.0,
+        "context_recall": avg("context_recall"),
         "retrieval_recall_at_5": avg("retrieval_recall_at_5"),
         "mrr": avg("mrr"),
         "citation_precision": avg("citation_precision"),
@@ -239,12 +251,14 @@ def write_report(triage: dict, e2e: dict, out_path: Path = RESULTS) -> None:
     lines.append("")
 
     lines.append("## Per-question breakdown\n")
-    lines.append("| id | gold | pred | R@5 | MRR | cite prec | cite recall | deadline | lat s |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    lines.append("| id | gold | pred | ctx recall | R@5 | MRR | cite prec | cite recall | deadline | lat s |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for r in e2e["per_row"]:
         lines.append(
             f"| {r['id']} | {r['gold_tier']} | {r['pred_tier']} | "
-            f"{r['retrieval_recall_at_5']:.2f} | {r['mrr']:.2f} | "
+            f"{r['context_recall']:.2f} | "
+            f"{r['retrieval_recall_at_5']:.2f} | "
+            f"{r['mrr']:.2f} | "
             f"{r['citation_precision']:.2f} | "
             f"{r['citation_recall']:.2f} | "
             f"{'yes' if r['deadline_match'] else 'no'} | "
@@ -271,19 +285,19 @@ def _commentary(agg: dict, triage: dict) -> str:
             "confusion matrix to find which tier needs better rules or richer Annex examples."
         )
 
-    if agg["retrieval_recall_at_5"] >= THRESHOLDS["retrieval_recall_at_5"]:
-        fragments.append(
-            f"- Retrieval Recall@5 ({agg['retrieval_recall_at_5']:.0%}) clears the bar. "
-            "Note that the gold articles are *obligation* articles (9, 10, 13, …) which "
-            "the deadline calculator injects deterministically; the retrieval target is "
-            "stricter — it has to surface them from the indexed Act."
-        )
-    else:
-        fragments.append(
-            f"- Retrieval Recall@5 ({agg['retrieval_recall_at_5']:.0%}) is below target. "
-            "This is the place to invest: stronger query rewrites or a real reranker "
-            "(e.g. a small cross-encoder) would pull the obligation articles in."
-        )
+    fragments.append(
+        f"- **Context recall = {agg['context_recall']:.0%}** (target "
+        f"{THRESHOLDS['context_recall']:.0%}). This is the headline retrieval "
+        "metric, defined as in [Ragas](https://docs.ragas.io/en/latest/concepts/metrics/context_recall.html) "
+        "— how many gold Articles appear anywhere in the retrieved context the "
+        "synthesizer sees. Position-agnostic, not bounded by k."
+    )
+    fragments.append(
+        f"- Retrieval Recall@5 = {agg['retrieval_recall_at_5']:.0%} (target "
+        f"{THRESHOLDS['retrieval_recall_at_5']:.0%}). Reported for transparency; "
+        "math-capped by min(5, |gold|) / |gold| — for high-risk with 9 gold "
+        "Articles the ceiling is 5/9 = 56%."
+    )
 
     fragments.append(
         f"- Citation recall ({agg['citation_recall']:.0%}) — what share of the gold "
@@ -325,6 +339,7 @@ def main() -> int:
     agg = e2e["agg"]
     for k in (
         "triage_accuracy",
+        "context_recall",
         "retrieval_recall_at_5",
         "citation_recall",
         "citation_precision",

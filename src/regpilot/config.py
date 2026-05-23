@@ -33,10 +33,12 @@ class Settings(BaseSettings):
         "dc8116a1-3fe6-11ef-865a-01aa75ed71a1"
     )
 
-    # Retrieval defaults
-    top_k_dense: int = 20
-    top_k_sparse: int = 20
-    top_k_rerank: int = 5
+    # Retrieval defaults — top_k_rerank must be >= max tier priority list size
+    # (high-risk has 12 obligation Articles) so the diversified pre-seed in
+    # the rerank node can surface one chunk per Article without budget overflow.
+    top_k_dense: int = 30
+    top_k_sparse: int = 30
+    top_k_rerank: int = 12
     rrf_k: int = 60
 
     # Validator loop cap

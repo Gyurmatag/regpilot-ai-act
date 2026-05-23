@@ -32,8 +32,14 @@ class Chunk:
     meta: dict = field(default_factory=dict)
 
 
-# Match "Article 5" / "Article 5a" / "Article 113" at line starts.
-_ART_RE = re.compile(r"(?m)^\s*Article\s+(\d+[a-z]?)\s*\n?\s*(.*?)$")
+# Match Article HEADERS only (not inline cross-references like "Article 74(8)").
+# Required shape: line containing exactly "Article N" (optionally with a letter
+# suffix), followed by a non-empty title line (multi-word, starts with a capital).
+# The negative lookahead `(?!\()` excludes paragraph references like
+# "Article 74(8)" that appear mid-sentence after a line break.
+_ART_RE = re.compile(
+    r"(?m)^\s*Article\s+(\d+[a-z]?)(?!\()\s*\n+\s*([A-Z][^\n]{2,200})$"
+)
 # Match "1." or "(1)" paragraph starts.
 _PARA_RE = re.compile(r"(?m)^\s*(?:\((\d{1,2})\)|(\d{1,2})\.)\s+")
 

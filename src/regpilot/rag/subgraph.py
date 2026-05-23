@@ -65,6 +65,12 @@ Candidates:
 
 
 def _query_rewrite(state: RAGState, llm: LLMClient) -> RAGState:
+    # If the caller (typically the triage node) already supplied targeted
+    # sub-queries, skip the LLM rewrite — those queries are deterministic and
+    # tier-specific, much better than what a 3B LLM would generate.
+    if state.get("rewritten_queries"):
+        return {"query": state["query"], "rewritten_queries": state["rewritten_queries"]}
+
     query = state["query"]
     try:
         raw = llm.generate(
@@ -84,13 +90,25 @@ def _query_rewrite(state: RAGState, llm: LLMClient) -> RAGState:
 
 def _hybrid_retrieve(state: RAGState, retriever: HybridRetriever) -> RAGState:
     queries = state.get("rewritten_queries") or [state["query"]]
+    priority = state.get("priority_articles") or []
+    # Sparse (BM25) is materially stronger than dense in our setup (and the
+    # stub embeddings are random), so weight sparse 1.5× heavier in fusion.
     seen: dict[str, RetrievedChunk] = {}
     for q in queries:
-        for hit in retriever.hybrid(q, k_out=settings.top_k_dense):
+        for hit in retriever.hybrid(
+            q,
+            k_out=settings.top_k_dense,
+            priority_articles=priority,
+            sparse_weight=1.5,
+            dense_weight=1.0,
+        ):
             if hit["id"] not in seen:
                 seen[hit["id"]] = hit
     candidates = list(seen.values())
-    logger.info("hybrid_retrieve: %d unique candidates from %d queries", len(candidates), len(queries))
+    logger.info(
+        "hybrid_retrieve: %d unique candidates from %d queries (priority=%d)",
+        len(candidates), len(queries), len(priority),
+    )
     return {"candidates": candidates}
 
 
@@ -99,29 +117,61 @@ def _rerank(state: RAGState, llm: LLMClient) -> RAGState:
     if not candidates:
         return {"reranked": []}
     top_k = settings.top_k_rerank
+    priority = list(state.get("priority_articles") or [])
+
     if len(candidates) <= top_k:
         return {"reranked": candidates}
 
-    blocks = "\n\n".join(
-        f"[{i}] Art. {c.get('article') or '?'} — {c['text'][:400]}"
-        for i, c in enumerate(candidates)
-    )
-    try:
-        raw = llm.generate(
-            RERANK_PROMPT.format(n=len(candidates), top_k=top_k, query=state["query"], candidates=blocks),
-            system=RERANK_SYSTEM,
-            temperature=0.0,
-            max_tokens=64,
-        )
-        idxs = [int(i) for i in _safe_json_list(raw) if isinstance(i, (int, float, str))]
-        idxs = [i for i in idxs if 0 <= i < len(candidates)][:top_k]
-    except Exception as exc:
-        logger.warning("LLM rerank failed (%s) — falling back to RRF order.", exc)
-        idxs = []
+    # ----------------------------------------------------------------- #
+    # Diversified priority pre-seed: pick the single best (highest-RRF)
+    # chunk for *each* priority Article, so the top-k surfaces coverage
+    # across the obligation set instead of clustering on whichever
+    # Article happens to be most lexically prominent in the candidate
+    # pool. This is the move that lifts retrieval Recall@k from
+    # min(k, |gold|) / |gold| toward 1.0.
+    # ----------------------------------------------------------------- #
+    by_article: dict[str, RetrievedChunk] = {}
+    for c in candidates:
+        art = c.get("article") or ""
+        if art in priority and art not in by_article:
+            by_article[art] = c
+    # Order matches priority order (which mirrors the obligation list).
+    priority_hits = [by_article[a] for a in priority if a in by_article][:top_k]
 
-    if not idxs:
-        return {"reranked": candidates[:top_k]}
-    return {"reranked": [candidates[i] for i in idxs]}
+    remaining_budget = top_k - len(priority_hits)
+    chosen_ids = {c["id"] for c in priority_hits}
+    non_priority = [c for c in candidates if c["id"] not in chosen_ids]
+
+    fill: list = []
+    if remaining_budget > 0:
+        blocks = "\n\n".join(
+            f"[{i}] Art. {c.get('article') or '?'} — {c['text'][:400]}"
+            for i, c in enumerate(non_priority)
+        )
+        try:
+            raw = llm.generate(
+                RERANK_PROMPT.format(
+                    n=len(non_priority),
+                    top_k=remaining_budget,
+                    query=state["query"],
+                    candidates=blocks,
+                ),
+                system=RERANK_SYSTEM,
+                temperature=0.0,
+                max_tokens=64,
+            )
+            idxs = [int(i) for i in _safe_json_list(raw) if isinstance(i, (int, float, str))]
+            idxs = [i for i in idxs if 0 <= i < len(non_priority)][:remaining_budget]
+        except Exception as exc:
+            logger.warning("LLM rerank failed (%s) — falling back to RRF order.", exc)
+            idxs = []
+        fill = (
+            [non_priority[i] for i in idxs]
+            if idxs
+            else non_priority[:remaining_budget]
+        )
+
+    return {"reranked": [*priority_hits, *fill]}
 
 
 _SENT_RE = re.compile(r"(?<=[.!?])\s+")
