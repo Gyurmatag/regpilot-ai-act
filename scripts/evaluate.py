@@ -38,6 +38,10 @@ THRESHOLDS = {
     # in the retrieved+reranked context the synthesizer sees, regardless of
     # rank within it? This is the headline retrieval metric.
     "context_recall": 0.90,
+    # Ragas-standard "faithfulness" — are the Articles cited in the final
+    # report all backed by chunks the synthesizer actually saw? This is the
+    # strongest guarantee against hallucinated Article numbers.
+    "faithfulness": 0.90,
     "citation_recall": 0.80,
     "citation_precision": 0.70,
     "deadline_exact_match": 0.80,
@@ -118,6 +122,21 @@ def _context_recall(retrieved_arts: list[str], gold: list[str]) -> float:
     return len(set(retrieved_arts) & set(gold)) / len(gold)
 
 
+def _faithfulness(cited: set[str], retrieved_arts: list[str]) -> float:
+    """Ragas-style faithfulness: are the Articles cited in the final report
+    actually backed by chunks the synthesizer was given?
+
+    A high score means the report only cites Articles that exist in the
+    retrieved context (no hallucinated Article numbers). For RegPilot, this
+    is the strongest guarantee against the worst RAG failure mode — an LLM
+    inventing a plausible-looking but non-existent ``Art. 99``.
+    """
+
+    if not cited:
+        return 0.0
+    return len(cited & set(retrieved_arts)) / len(cited)
+
+
 # --------------------------------------------------------------------------- #
 # Single-node eval (risk_triage only)
 # --------------------------------------------------------------------------- #
@@ -160,6 +179,7 @@ def eval_end_to_end(rows: list[dict]) -> dict:
                 "latency_s": latency,
                 "retrieval_recall_at_5": _recall_at_k(retrieved, r["expected_articles"], k=5),
                 "context_recall": _context_recall(retrieved, r["expected_articles"]),
+                "faithfulness": _faithfulness(cited, retrieved),
                 "mrr": _mrr(retrieved, r["expected_articles"]),
                 "citation_precision": _citation_precision(cited, r["expected_articles"]),
                 "citation_recall": _citation_recall(cited, r["expected_articles"]),
@@ -190,6 +210,7 @@ def _aggregate(per_row: list[dict]) -> dict:
         "n": n,
         "triage_accuracy": sum(1 for r in per_row if r["gold_tier"] == r["pred_tier"]) / n if n else 0.0,
         "context_recall": avg("context_recall"),
+        "faithfulness": avg("faithfulness"),
         "retrieval_recall_at_5": avg("retrieval_recall_at_5"),
         "mrr": avg("mrr"),
         "citation_precision": avg("citation_precision"),
@@ -340,6 +361,7 @@ def main() -> int:
     for k in (
         "triage_accuracy",
         "context_recall",
+        "faithfulness",
         "retrieval_recall_at_5",
         "citation_recall",
         "citation_precision",

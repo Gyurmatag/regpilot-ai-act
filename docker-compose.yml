@@ -1,10 +1,23 @@
 services:
   ollama:
+    # Pinned to a stable Ollama release. Bump explicitly after testing — never
+    # use :latest in production (rollback story disappears).
     image: ollama/ollama:0.5.4
     container_name: regpilot-ollama
     restart: unless-stopped
     ports:
       - "11434:11434"
+    environment:
+      # See docs.ollama.com/faq — these env vars are the production-tuning
+      # knobs. Defaults are demo-grade; the values below match a CPU-only
+      # 8-core box with one 3B-parameter chat model + one embedding model.
+      OLLAMA_NUM_PARALLEL: "4"          # KV-cache slots per loaded model
+      OLLAMA_MAX_QUEUE: "128"           # fail fast (503) rather than queue forever
+      OLLAMA_MAX_LOADED_MODELS: "2"     # chat + embed simultaneously
+      OLLAMA_KEEP_ALIVE: "10m"          # keep models warm between requests
+      OLLAMA_FLASH_ATTENTION: "1"       # ~10-20% throughput gain when supported
+      OLLAMA_DEBUG: "0"
+      OLLAMA_HOST: "0.0.0.0:11434"
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:
@@ -45,12 +58,28 @@ services:
     environment:
       REGPILOT_LLM: ollama
       OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_TIMEOUT_S: "30"
       REGPILOT_CHAT_MODEL: qwen2.5:3b-instruct
       REGPILOT_EMBED_MODEL: nomic-embed-text
+      REGPILOT_EMBED_PARALLELISM: "4"   # match OLLAMA_NUM_PARALLEL above
       REGPILOT_CHROMA_DIR: /data/chroma
       REGPILOT_DATA_DIR: /data/raw
+      # Fast paths default-on so a single query returns in ~5-7s on CPU.
+      REGPILOT_INTAKE_FAST: "true"
+      REGPILOT_RERANK_FAST: "true"
+      REGPILOT_SYNTH_FAST: "true"
+      # Durable LangGraph state across container restarts (single-process
+      # SqliteSaver; switch to PostgresSaver when going multi-worker).
+      REGPILOT_CHECKPOINTER: sqlite
+      REGPILOT_CHECKPOINT_PATH: /data/checkpoints.sqlite
     ports:
       - "8501:8501"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8501/_stcore/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
     volumes:
       - chroma:/data/chroma
       - data:/data/raw

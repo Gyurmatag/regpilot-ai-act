@@ -54,6 +54,24 @@ class Settings(BaseSettings):
     # Validator loop cap
     max_validator_loops: int = 2
 
+    # Production guard: LangGraph will raise GraphRecursionError after this
+    # many node hops. Sized at ~2× the worst-case path (intake → triage →
+    # rag → mapper → synth → validator → mapper → synth → validator).
+    graph_recursion_limit: int = 40
+
+    # State durability. ``memory`` (default) = ephemeral; ``sqlite`` = on-disk
+    # checkpointer keyed by ``thread_id`` so a crashed Streamlit / Docker
+    # restart can resume the last in-flight run.
+    checkpointer: str = Field("memory", alias="REGPILOT_CHECKPOINTER")
+    checkpoint_path: Path = Field(
+        REPO_ROOT / "data" / "checkpoints.sqlite",
+        alias="REGPILOT_CHECKPOINT_PATH",
+    )
+
+    # Structured JSON logs (off by default for human-readable local dev,
+    # on inside docker-compose for log shippers).
+    log_json: bool = Field(False, alias="REGPILOT_LOG_JSON")
+
     @property
     def is_stub(self) -> bool:
         return self.llm_backend.lower() == "stub"

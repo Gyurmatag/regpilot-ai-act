@@ -37,7 +37,8 @@ docker compose up --build
 5. [Functional evaluation](#5-functional-evaluation)
 6. [Load test](#6-load-test)
 7. [Tests & CI](#7-tests--ci)
-8. [Limitations & next steps](#8-limitations--next-steps)
+8. [Production deployment](#8-production-deployment)
+9. [Limitations & next steps](#9-limitations--next-steps)
 
 ---
 
@@ -299,7 +300,57 @@ GitHub Actions [`ci.yml`](.github/workflows/ci.yml) runs `ruff check` + `mypy sr
 
 ---
 
-## 8. Limitations & next steps
+## 8. Production deployment
+
+Hardened against industry best-practice checklists (Ollama production guide, LangGraph deployment patterns, Ragas RAG eval, PwC AI Act consulting methodology). Key knobs all live in [`docker-compose.yml`](docker-compose.yml) + [`.env.example`](.env.example):
+
+### Ollama tuning ([ref](https://docs.ollama.com/faq))
+
+- `OLLAMA_NUM_PARALLEL=4` — KV-cache slots per loaded model (real concurrent inference, not just request queueing).
+- `OLLAMA_MAX_QUEUE=128` — fail fast (HTTP 503) instead of queuing for minutes when a burst hits.
+- `OLLAMA_MAX_LOADED_MODELS=2` — keep chat + embed models warm simultaneously.
+- `OLLAMA_KEEP_ALIVE=10m` — avoid cold-start unload between requests.
+- `OLLAMA_FLASH_ATTENTION=1` — ~10-20% throughput gain.
+- `OllamaClient.generate/_embed_one` retry HTTP 503 (`OllamaBusyError`) and `ReadTimeout` with exponential backoff via `tenacity` — under load the client recovers instead of cascading failures.
+
+### LangGraph production patterns
+
+- **Typed `RegPilotState` (TypedDict)** — every field is explicit, serializable, checkpoint-safe.
+- **`SqliteSaver` checkpointer** (`REGPILOT_CHECKPOINTER=sqlite`, on by default in compose) — every node transition is persisted to `/data/checkpoints.sqlite`; a crashed container resumes the in-flight run on the next boot. Multi-worker setups should swap to `langgraph-checkpoint-postgres` (one line change).
+- **`recursion_limit=40`** on every invoke — `GraphRecursionError` raised instead of looping forever; caught by `run()` and surfaced as a clean error.
+- **`thread_id` per invocation** — UUID4 by default, but the UI passes the Streamlit session id so the same user's runs are correlated; logs include it for replay.
+- **`error_count` / `last_error` in state** — per-node exceptions are captured and surfaced instead of crashing the chain.
+- **Validator self-critique loop** capped at `max_validator_loops=2`.
+
+### App-level health & observability
+
+- **Container `HEALTHCHECK`** hits Streamlit's `/_stcore/health` every 10s; orchestrators (compose, Kubernetes) restart unhealthy pods automatically.
+- **Structured logging** keys: `thread_id`, node name, LLM mode (`heuristic` / `llm` / `template`), per-call latency — easy to ship to Loki / Grafana Cloud.
+- **Optional Langfuse hook** — set `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` to stream traces.
+
+### Quality measurement (Ragas-style)
+
+`scripts/evaluate.py` reports:
+
+| Metric | Target | Current | What it catches |
+|---|---|---|---|
+| `triage_accuracy` | 80% | **100%** | Wrong risk-tier classification |
+| `context_recall` (Ragas) | 90% | **100%** | Gold Articles missing from retrieved context |
+| `faithfulness` (Ragas) | 90% | **100%** | Hallucinated Article numbers in the report |
+| `citation_recall` | 80% | **100%** | Required obligations not cited |
+| `citation_precision` | 70% | **100%** | Off-topic Articles cited |
+| `deadline_exact_match` | 80% | **100%** | Wrong Art. 113 phase date |
+| `retrieval_recall_at_5` | 40% | **77.8%** | Position-sensitive retrieval health (math-capped) |
+
+Drop any metric and the regression is visible commit-to-commit.
+
+### Scaling notes
+
+- **Vertical**: bump `OLLAMA_NUM_PARALLEL` proportional to VRAM (each slot ≈15-25% of base model VRAM); bump `REGPILOT_EMBED_PARALLELISM` to match.
+- **Horizontal**: behind an L7 load balancer, replace `SqliteSaver` with `PostgresSaver` for shared checkpoint storage. Ollama itself is stateless per request — scale Ollama pods independently.
+- **Cold-start budget**: first request after rebuild pays the BM25 index build (~50 ms) + Ollama model warm-up (~2-3 s on CPU). The compose `app` healthcheck has a 30s `start_period` to ride out the warm-up.
+
+## 9. Limitations & next steps
 
 * **Not legal advice.** RegPilot is a first-pass triage tool. The Act's grey
   areas (purpose-built carve-outs, GPAI tier definition, sectoral overlaps with

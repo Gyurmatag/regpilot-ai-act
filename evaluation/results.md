@@ -22,29 +22,30 @@ Confusion matrix (rows = gold, columns = predicted):
 | --- | --- | --- | --- |
 | triage_accuracy | 100.00% | 80% | yes |
 | context_recall | 90.00% | 90% | yes |
+| faithfulness | 90.00% | 90% | yes |
 | citation_recall | 100.00% | 80% | yes |
 | citation_precision | 100.00% | 70% | yes |
 | deadline_exact_match | 100.00% | 80% | yes |
 | retrieval_recall_at_5 | 66.67% | 40% | yes |
 | MRR | 1.000 | — | — |
-| latency p50 (s) | 0.01 | — | — |
-| latency p95 (s) | 0.06 | — | — |
+| latency p50 (s) | 0.02 | — | — |
+| latency p95 (s) | 0.10 | — | — |
 
 ## Per-question breakdown
 
 | id | gold | pred | ctx recall | R@5 | MRR | cite prec | cite recall | deadline | lat s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| q01 | prohibited | prohibited | 0.50 | 0.50 | 1.00 | 1.00 | 1.00 | yes | 0.11 |
-| q02 | prohibited | prohibited | 0.50 | 0.50 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
-| q03 | prohibited | prohibited | 0.50 | 0.50 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
-| q04 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.06 |
-| q05 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
-| q06 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
-| q07 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
-| q08 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
-| q09 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
-| q10 | limited_risk | limited_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
-| q11 | limited_risk | limited_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
+| q01 | prohibited | prohibited | 0.50 | 0.50 | 1.00 | 1.00 | 1.00 | yes | 0.16 |
+| q02 | prohibited | prohibited | 0.50 | 0.50 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
+| q03 | prohibited | prohibited | 0.50 | 0.50 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
+| q04 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.10 |
+| q05 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.04 |
+| q06 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.03 |
+| q07 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.03 |
+| q08 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.04 |
+| q09 | high_risk | high_risk | 1.00 | 0.42 | 1.00 | 1.00 | 1.00 | yes | 0.10 |
+| q10 | limited_risk | limited_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
+| q11 | limited_risk | limited_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
 | q12 | limited_risk | limited_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
 | q13 | minimal_risk | minimal_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
 | q14 | minimal_risk | minimal_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |

@@ -66,6 +66,9 @@ class RegPilotState(TypedDict, total=False):
     validator_loops: int
     final_report: str
     trace: list[TraceEvent]
+    # Production observability + error capture.
+    error_count: int
+    last_error: str
 
 
 class RAGState(TypedDict, total=False):

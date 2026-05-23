@@ -23,11 +23,24 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from regpilot.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class OllamaBusyError(RuntimeError):
+    """Raised when Ollama returns HTTP 503 (queue full, ``OLLAMA_MAX_QUEUE`` hit).
+
+    Separated so tenacity can backoff specifically on this — connection errors
+    bubble up immediately for the caller to handle.
+    """
 
 
 class LLMClient(ABC):
@@ -69,7 +82,12 @@ class OllamaClient(LLMClient):
             thread_name_prefix="ollama-embed",
         )
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8), reraise=True)
+    @retry(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=1, max=15),
+        retry=retry_if_exception_type((OllamaBusyError, httpx.ReadTimeout)),
+        reraise=True,
+    )
     def generate(
         self,
         prompt: str,
@@ -88,10 +106,18 @@ class OllamaClient(LLMClient):
         if system:
             payload["system"] = system
         r = self._client.post(f"{self.base_url}/api/generate", json=payload)
+        if r.status_code == 503:
+            # OLLAMA_MAX_QUEUE hit; backoff and retry per tenacity policy.
+            raise OllamaBusyError(f"Ollama queue full at {self.base_url} (HTTP 503)")
         r.raise_for_status()
         return str(r.json().get("response", "")).strip()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8), reraise=True)
+    @retry(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=1, max=15),
+        retry=retry_if_exception_type((OllamaBusyError, httpx.ReadTimeout)),
+        reraise=True,
+    )
     def _embed_one(self, text: str) -> list[float]:
         # Empty / whitespace inputs make Ollama return [] which then breaks
         # chromadb's "non-empty vector" validation. Substitute a single
@@ -101,6 +127,8 @@ class OllamaClient(LLMClient):
             f"{self.base_url}/api/embeddings",
             json={"model": self.embed_model, "prompt": payload_text},
         )
+        if r.status_code == 503:
+            raise OllamaBusyError(f"Ollama queue full at {self.base_url} (HTTP 503)")
         r.raise_for_status()
         emb = list(r.json().get("embedding") or [])
         if not emb:

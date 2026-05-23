@@ -151,7 +151,7 @@ _NEXT_STEPS: dict[str, list[str]] = {
         "Map each obligation in the table to an internal owner and target date.",
         "Compile technical documentation per Annex IV (Art. 11) and prepare for the conformity assessment (Art. 43).",
         "Register the system in the EU database before placing it on the market (Art. 49).",
-        "Establish post-market monitoring and a serious-incident reporting workflow (Art. 72).",
+        "Establish post-market monitoring and a serious-incident reporting workflow (Arts. 72-73).",
     ],
     "limited_risk": [
         "Implement the Article 50 transparency disclosures in the user-facing flow.",
@@ -182,6 +182,46 @@ _TIER_LABEL: dict[str, str] = {
     "prohibited": "Prohibited",
     "unknown": "Unknown",
 }
+
+
+# Maps internal-tool roles to a human sentence describing what the role
+# specifically owes under the Act. Used in the role narrative block.
+_ROLE_NARRATIVE: dict[str, str] = {
+    "provider": (
+        "As a **provider** you bear the primary compliance burden — design-time "
+        "controls (Arts. 8-15), conformity assessment (Art. 43), registration "
+        "(Art. 49), post-market monitoring (Art. 72)."
+    ),
+    "deployer": (
+        "As a **deployer** you are responsible for using the system per the "
+        "provider's instructions, assigning human oversight (Art. 26) and, where "
+        "applicable, conducting a Fundamental Rights Impact Assessment (Art. 27)."
+    ),
+    "importer": (
+        "As an **importer** you must verify the provider's CE marking, "
+        "documentation and EU declaration of conformity before placing the "
+        "system on the market (Art. 23)."
+    ),
+    "distributor": (
+        "As a **distributor** you must check the CE marking and provider's "
+        "instructions before further distributing the system (Art. 24)."
+    ),
+    "unknown": (
+        "Your role in the AI value chain is not yet identified. The Act imposes "
+        "different obligations on providers, deployers, importers and "
+        "distributors — clarify before scoping compliance work."
+    ),
+}
+
+
+# Lifecycle phase → which Articles apply during that phase. Helps clients map
+# compliance work onto their existing SDLC / MLOps cadence.
+_LIFECYCLE: list[tuple[str, str]] = [
+    ("Design & development", "Arts. 9, 10, 14, 15 (risk management, data governance, oversight, accuracy)"),
+    ("Pre-market / before placing on the EU market", "Arts. 11, 13, 17, 43, 47, 48 (technical documentation, instructions, QMS, conformity assessment, declaration, CE marking)"),
+    ("Market entry", "Arts. 49 (EU database registration) + 16 (provider obligations)"),
+    ("In use / post-market", "Arts. 12, 26, 27, 72, 73 (logs, deployer oversight, FRIA, monitoring, serious-incident reporting)"),
+]
 
 
 def _template_report(
@@ -225,24 +265,58 @@ def _template_report(
 
     purpose = structured.get("system_purpose") or "the described AI system"
     domain = structured.get("domain") or "general"
-    role = structured.get("user_role") or "unknown"
+    role = (structured.get("user_role") or "unknown").lower()
+    role_narrative = _ROLE_NARRATIVE.get(role, _ROLE_NARRATIVE["unknown"])
+
+    # Fundamental Rights Impact Assessment trigger (Art. 27): high-risk Annex III
+    # systems deployed by public-sector bodies or providing essential services.
+    # We surface it as a flag for any high-risk deployer — the user / lawyer
+    # confirms applicability.
+    fria_flag = ""
+    if tier == "high_risk" and role in ("deployer", "unknown"):
+        fria_flag = (
+            "\n> ⚖️ **Article 27 FRIA trigger** — if you are a public-sector "
+            "deployer (or a private body providing public services / "
+            "essential private services), you must run a Fundamental Rights "
+            "Impact Assessment before first use.\n"
+        )
+
+    lifecycle_md = "\n".join(
+        f"- **{phase}** — {arts}" for phase, arts in _LIFECYCLE
+    )
 
     return (
         f"## Executive summary\n"
-        f"**{purpose}** is classified as **{tier_label}** under the EU AI Act. "
-        f"This roadmap lists the {len(obligations)} concrete obligation(s) that apply, "
-        f"along with their Article 113 phased deadlines.\n\n"
+        f"**{purpose}** is classified as **{tier_label}** under the EU AI Act "
+        f"(Regulation (EU) 2024/1689). This roadmap lists the "
+        f"{len(obligations)} concrete obligation(s) that apply, along with "
+        f"their Article 113 phased deadlines, and maps them onto the system "
+        f"lifecycle.\n\n"
         f"## Risk classification\n"
         f"- **Tier**: {tier_label}\n"
         f"- **Domain**: {domain}\n"
         f"- **User role**: {role}\n"
         f"- **Applicable Articles**: {cited_str}\n\n"
+        f"## Your role in the value chain\n"
+        f"{role_narrative}\n"
+        f"{fria_flag}\n"
         f"## Obligations & deadlines\n"
         f"{obligation_bullets}\n\n"
+        f"## Lifecycle mapping\n"
+        f"Where each obligation fits in the system lifecycle (use this to "
+        f"plan compliance work alongside your existing SDLC / MLOps cadence):\n\n"
+        f"{lifecycle_md}\n\n"
         f"## Evidence excerpts\n"
         f"{evidence_md}\n\n"
         f"## Recommended next steps\n"
-        f"{steps_md}\n"
+        f"{steps_md}\n\n"
+        f"## Aligned standards & frameworks\n"
+        f"The obligations above also map onto recognised industry frameworks "
+        f"and standards your organisation may already use:\n\n"
+        f"- **ISO/IEC 42001:2023** — AI management systems (governance, risk, lifecycle).\n"
+        f"- **NIST AI Risk Management Framework (AI RMF 1.0)** — Govern, Map, Measure, Manage.\n"
+        f"- **ISO/IEC 23894:2023** — AI risk management guidance.\n"
+        f"- **CEN/CENELEC JTC 21** — harmonised AI Act standards being developed to support presumption of conformity.\n"
     )
 
 

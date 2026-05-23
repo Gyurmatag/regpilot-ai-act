@@ -95,17 +95,54 @@ def compute_deadlines(
     if system_type == "general_purpose_ai":
         out.append(
             DeadlineInfo(
-                obligation="Maintain technical documentation, training-data summary, copyright policy.",
+                obligation="Maintain technical documentation per Annex XI.",
+                article="Art. 53",
+                applies_from=GPAI_GOVERNANCE_APPLY,
+                note="GPAI provider documentation obligation.",
+            )
+        )
+        out.append(
+            DeadlineInfo(
+                obligation="Publish a sufficiently detailed summary of training content used.",
                 article="Art. 53",
                 applies_from=GPAI_GOVERNANCE_APPLY,
             )
         )
         out.append(
             DeadlineInfo(
+                obligation="Put in place a policy to comply with Union copyright law (Art. 4(3) of the Copyright Directive).",
+                article="Art. 53",
+                applies_from=GPAI_GOVERNANCE_APPLY,
+            )
+        )
+        out.append(
+            DeadlineInfo(
+                obligation="Cooperate with the AI Office and national competent authorities.",
+                article="Art. 54",
+                applies_from=GPAI_GOVERNANCE_APPLY,
+            )
+        )
+        out.append(
+            DeadlineInfo(
                 obligation=(
-                    "Systemic-risk GPAI models: incident reporting, adversarial testing, "
-                    "cybersecurity protection."
+                    "Systemic-risk GPAI models (≥10^25 FLOPs training compute): model evaluation, "
+                    "adversarial testing, systemic-risk assessment + mitigation."
                 ),
+                article="Art. 55",
+                applies_from=GPAI_GOVERNANCE_APPLY,
+                note="Only applies to GPAI models with systemic risk (Art. 51).",
+            )
+        )
+        out.append(
+            DeadlineInfo(
+                obligation="Systemic-risk GPAI: report serious incidents to the AI Office and national authorities without undue delay.",
+                article="Art. 55",
+                applies_from=GPAI_GOVERNANCE_APPLY,
+            )
+        )
+        out.append(
+            DeadlineInfo(
+                obligation="Systemic-risk GPAI: ensure adequate cybersecurity protection of the model + physical infrastructure.",
                 article="Art. 55",
                 applies_from=GPAI_GOVERNANCE_APPLY,
             )
