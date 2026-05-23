@@ -12,15 +12,48 @@ applicable Articles, computes the concrete compliance deadlines from Article 113
 and emits a roadmap with footnoted citations — all locally, no paid APIs.
 
 Built end-to-end with **LangGraph** (agentic workflow + a modular RAG subgraph),
-**Ollama** for the local LLM (`qwen2.5:3b-instruct`) and embeddings
-(`nomic-embed-text`), **ChromaDB** + **BM25** for hybrid retrieval, and
-**Streamlit** for the UI. **End-to-end latency ~5–7 seconds** per query on CPU,
-well inside the 30-second production SLA. The whole stack comes up with one command:
+a **provider-agnostic LLM layer** (Ollama / OpenAI / Anthropic, all via the
+same `LLMClient` interface with native structured-output APIs), **ChromaDB** +
+**BM25** for hybrid retrieval, and **Streamlit** for the UI. The whole stack
+comes up with one command:
 
 ```bash
 docker compose up --build
 # → http://localhost:8501
 ```
+
+### LLM-first architecture
+
+Every node that benefits from natural-language understanding now runs the LLM
+with **structured output** (Pydantic schemas). The only deterministic regex
+left in the hot path covers Article 5 prohibited practices and the
+Article 51 GPAI systemic-risk threshold — both are enumerated regulatory
+definitions where the AI Act itself prescribes the exact wording, so
+deterministic matching is the correct call for auditability.
+
+| Node | Default | What the LLM does |
+|---|---|---|
+| `intake_classifier` | **LLM** (`generate_structured(IntakeSchema)`) | Extracts purpose / role / domain / modalities from free text |
+| `risk_triage` | **Semantic similarity + LLM verdict** | Embeds Annex III area canonical descriptions, matches the user input by cosine similarity, then LLM returns final tier via `generate_structured(ClassificationResult)`. Bright-line rules (Art. 5, Art. 51 GPAI) short-circuit when matched. |
+| `rag_retrieval` (embed) | **LLM** (provider's embedding API) | Real dense vectors for hybrid retrieval |
+| `rag_retrieval` (rerank) | **LLM** | Picks the most relevant top-k from the fused candidate list |
+| `obligation_mapper` | Pure Python lookup | Maps tier → `compute_deadlines()` (deterministic regulatory data) |
+| `compliance_synthesizer` | **LLM** (`generate_structured(ReportSections)`) | Writes executive summary, classification narrative, recommended next steps. Deterministic scaffold preserves the obligations table + lifecycle mapping + frameworks alignment to keep citations grounded. |
+| `validator` | Regex citation extraction + ChromaDB cross-check | Verifies every `Art. N` in the draft exists |
+
+Switch providers with one env var:
+
+```bash
+REGPILOT_LLM=openai     OPENAI_API_KEY=sk-...          # gpt-4o-mini, native structured output
+REGPILOT_LLM=anthropic  ANTHROPIC_API_KEY=sk-ant-...   # claude-3-5-haiku, tool-use structured output
+REGPILOT_LLM=ollama                                    # default, fully local
+REGPILOT_LLM=stub                                      # deterministic mock for CI / offline dev
+```
+
+**Latency.** On CPU-only Ollama: ~30–90 s end-to-end (LLM-primary mode).
+On hosted OpenAI or Anthropic: ~3–6 s end-to-end. The deterministic fast
+path (`REGPILOT_INTAKE_FAST=true` etc.) hits ~5–7 s on CPU when you need a
+hard SLA budget over LLM quality.
 
 ![RegPilot UI screenshot](docs/img/regpilot-ui.png)
 

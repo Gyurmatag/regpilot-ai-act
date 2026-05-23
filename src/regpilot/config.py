@@ -13,20 +13,40 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # LLM provider — one of ``ollama`` (default, fully-local), ``openai``,
+    # ``anthropic``, ``stub`` (deterministic mock for tests).
     llm_backend: str = Field("ollama", alias="REGPILOT_LLM")
+
+    # Ollama
     ollama_base_url: str = Field("http://localhost:11434", alias="OLLAMA_BASE_URL")
     chat_model: str = Field("qwen2.5:3b-instruct", alias="REGPILOT_CHAT_MODEL")
     embed_model: str = Field("nomic-embed-text", alias="REGPILOT_EMBED_MODEL")
     ollama_timeout_s: float = Field(30.0, alias="OLLAMA_TIMEOUT_S")
+
+    # OpenAI (hosted) — used when REGPILOT_LLM=openai
+    openai_api_key: str = Field("", alias="OPENAI_API_KEY")
+    openai_base_url: str = Field("", alias="OPENAI_BASE_URL")  # blank → default
+    openai_chat_model: str = Field("gpt-4o-mini", alias="OPENAI_CHAT_MODEL")
+    openai_embed_model: str = Field("text-embedding-3-small", alias="OPENAI_EMBED_MODEL")
+
+    # Anthropic (hosted) — used when REGPILOT_LLM=anthropic. Anthropic has no
+    # embedding API, so embeddings fall back to Ollama when this backend is
+    # active. Set ``OLLAMA_BASE_URL`` accordingly.
+    anthropic_api_key: str = Field("", alias="ANTHROPIC_API_KEY")
+    anthropic_chat_model: str = Field("claude-3-5-haiku-latest", alias="ANTHROPIC_CHAT_MODEL")
+
     embed_parallelism: int = Field(8, alias="REGPILOT_EMBED_PARALLELISM")
 
-    # Fast-path toggles. Each is a hard short-circuit around an expensive LLM
-    # call so the default install meets a 30s SLA on CPU. Each can be flipped
-    # to "false" to opt back into the LLM-driven path (slower, marginally
-    # higher quality on rare ambiguous inputs).
-    intake_fast: bool = Field(True, alias="REGPILOT_INTAKE_FAST")
-    rerank_fast: bool = Field(True, alias="REGPILOT_RERANK_FAST")
-    synth_fast: bool = Field(True, alias="REGPILOT_SYNTH_FAST")
+    # LLM-primary toggles. Defaults to LLM-driven for proper agentic behaviour;
+    # set any to ``true`` to opt back into the deterministic fast-path
+    # (useful for CPU-only Ollama installs that need < 30s latency).
+    intake_fast: bool = Field(False, alias="REGPILOT_INTAKE_FAST")
+    rerank_fast: bool = Field(False, alias="REGPILOT_RERANK_FAST")
+    synth_fast: bool = Field(False, alias="REGPILOT_SYNTH_FAST")
+
+    # Semantic-similarity classifier threshold. Annex III area is considered a
+    # match if cosine similarity ≥ this value. Tuned on the gold testset.
+    semantic_match_threshold: float = Field(0.45, alias="REGPILOT_SEM_THRESHOLD")
 
     chroma_dir: Path = Field(REPO_ROOT / "data" / "chroma", alias="REGPILOT_CHROMA_DIR")
     data_dir: Path = Field(REPO_ROOT / "data" / "raw", alias="REGPILOT_DATA_DIR")
@@ -75,6 +95,12 @@ class Settings(BaseSettings):
     @property
     def is_stub(self) -> bool:
         return self.llm_backend.lower() == "stub"
+
+    @property
+    def provider(self) -> str:
+        """Normalised provider name (``ollama`` / ``openai`` / ``anthropic`` / ``stub``)."""
+
+        return self.llm_backend.lower()
 
 
 settings = Settings()  # type: ignore[call-arg]  # pydantic-settings reads defaults from env

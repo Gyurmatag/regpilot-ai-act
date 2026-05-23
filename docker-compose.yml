@@ -56,18 +56,30 @@ services:
       ingest:
         condition: service_completed_successfully
     environment:
-      REGPILOT_LLM: ollama
+      # Provider — change to "openai" or "anthropic" and pass the matching
+      # API key env vars to use a hosted LLM (faster, much better quality).
+      REGPILOT_LLM: ${REGPILOT_LLM:-ollama}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      OPENAI_EMBED_MODEL: ${OPENAI_EMBED_MODEL:-text-embedding-3-small}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_CHAT_MODEL: ${ANTHROPIC_CHAT_MODEL:-claude-3-5-haiku-latest}
+      # Ollama is always wired in — for the default local backend and as the
+      # embedding provider when REGPILOT_LLM=anthropic.
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_TIMEOUT_S: "30"
+      OLLAMA_TIMEOUT_S: "60"  # LLM-primary mode runs longer single calls
       REGPILOT_CHAT_MODEL: qwen2.5:3b-instruct
       REGPILOT_EMBED_MODEL: nomic-embed-text
       REGPILOT_EMBED_PARALLELISM: "4"   # match OLLAMA_NUM_PARALLEL above
       REGPILOT_CHROMA_DIR: /data/chroma
       REGPILOT_DATA_DIR: /data/raw
-      # Fast paths default-on so a single query returns in ~5-7s on CPU.
-      REGPILOT_INTAKE_FAST: "true"
-      REGPILOT_RERANK_FAST: "true"
-      REGPILOT_SYNTH_FAST: "true"
+      # LLM-primary mode (Option C). The LLM drives intake, classification,
+      # rerank, synthesizer via structured outputs. Set any flag to "true"
+      # to fall back to the deterministic regex/template path for that node.
+      REGPILOT_INTAKE_FAST: "false"
+      REGPILOT_RERANK_FAST: "false"
+      REGPILOT_SYNTH_FAST: "false"
+      REGPILOT_SEM_THRESHOLD: "0.45"
       # Durable LangGraph state across container restarts (single-process
       # SqliteSaver; switch to PostgresSaver when going multi-worker).
       REGPILOT_CHECKPOINTER: sqlite
@@ -78,8 +90,8 @@ services:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8501/_stcore/health || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 30s
+      retries: 12
+      start_period: 60s
     volumes:
       - chroma:/data/chroma
       - data:/data/raw

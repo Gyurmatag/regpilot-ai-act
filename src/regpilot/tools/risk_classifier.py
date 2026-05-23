@@ -1,26 +1,51 @@
-"""Risk classifier tool.
+"""LLM-first risk classifier with semantic-similarity Annex III matching.
 
-Hybrid: deterministic keyword/pattern scan first (cheap, explainable), with the
-LLM only invoked when no rule matches. Returns a tier verdict + rationale plus
-the matched Annex III areas / Article 5 prohibitions so the downstream nodes
-can render citations.
+Architecture (Option C — LLM-primary):
 
-Tier vocabulary mirrors the EU AI Act's four-step risk hierarchy:
-``prohibited``, ``high_risk``, ``limited_risk``, ``minimal_risk``.
+1. **Bright-line rule overrides** run first. Article 5 prohibited practices
+   and the GPAI Article 51 systemic-risk threshold (10^25 FLOPs) are
+   enumerated regulatory definitions, so we match them with keyword/regex
+   patterns and short-circuit the LLM. Everything else flows to the LLM.
+
+2. **Semantic similarity** for Annex III area candidates. Each Annex III
+   area's canonical description is embedded once per process; the user's
+   description is embedded; cosine similarity surfaces the candidate areas
+   above ``settings.semantic_match_threshold``. This replaces the old
+   regex keyword scan and *generalises to paraphrases* without hand-written
+   patterns.
+
+3. **LLM-driven verdict via structured output**. The LLM receives the user
+   description plus the candidate Annex III areas plus the tier vocabulary,
+   and returns a Pydantic-validated :class:`ClassificationResult` (tier,
+   rationale, Annex III areas, Article 5 codes).
+
+4. **Graceful degradation**. If the LLM call fails or returns invalid
+   structured output, we fall back to the semantic-match areas + heuristic
+   tier inference so the agent never crashes.
 """
 
 from __future__ import annotations
 
-import json
 import logging
+import math
 import re
 from dataclasses import dataclass
+from threading import Lock
+from typing import Any
 
+from pydantic import BaseModel, Field
+
+from regpilot.config import settings
 from regpilot.ingestion.annex import ANNEX_III, ARTICLE_5_PROHIBITED
-from regpilot.llm import LLMClient, get_llm
+from regpilot.llm import LLMClient, StructuredOutputError, get_llm
 from regpilot.state import RiskTier, StructuredIntake
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Public dataclass — stays stable across the codebase
+# --------------------------------------------------------------------------- #
 
 
 @dataclass
@@ -29,45 +54,62 @@ class RiskVerdict:
     rationale: str
     annex_iii_matches: list[str]
     article_5_matches: list[str]
-    confidence: float  # 0.0 = "LLM guess", 1.0 = "exact rule hit"
+    confidence: float  # 0.0 = LLM-only / no rule support, 1.0 = bright-line override
 
 
 # --------------------------------------------------------------------------- #
-# Rule layer
+# Pydantic schema for LLM structured output
 # --------------------------------------------------------------------------- #
 
 
-def _rule_scan(text: str) -> tuple[list[str], list[str]]:
-    """Return (annex_iii_areas, article_5_codes) that match the input text."""
-
-    annex_hits: list[str] = []
-    art5_hits: list[str] = []
-    low = text.lower()
-    for entry in ANNEX_III:
-        if any(_kw_match(kw, low) for kw in entry.keywords):
-            annex_hits.append(entry.area)
-    for prac in ARTICLE_5_PROHIBITED:
-        if any(_kw_match(kw, low) for kw in prac.keywords):
-            art5_hits.append(prac.code)
-
-    # Combination patterns: catch wordings the literal keyword scan misses.
-    for pattern, code in _COMBO_PATTERNS:
-        if pattern.search(low) and code not in art5_hits:
-            art5_hits.append(code)
-
-    # Verb-form patterns for the Annex III biometric category — users describe
-    # what their system *does* ("analyses emotions", "detects faces") rather
-    # than the canonical noun phrase ("emotion recognition").
-    for pattern, area in _ANNEX_COMBO_PATTERNS:
-        if pattern.search(low) and area not in annex_hits:
-            annex_hits.append(area)
-    return annex_hits, art5_hits
+_TIER_LITERAL = (
+    "prohibited",
+    "high_risk",
+    "limited_risk",
+    "minimal_risk",
+    "general_purpose",
+    "general_purpose_systemic",
+)
 
 
-# Combination patterns for Article 5 — paraphrased wordings the literal
-# keyword list can't catch.
-_COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    # "police ... predict ... crime|criminal" → 5(1)(d) predictive policing
+class ClassificationResult(BaseModel):
+    """Schema the LLM fills in for the classification verdict."""
+
+    tier: str = Field(
+        description=(
+            "EU AI Act risk tier. One of: prohibited, high_risk, limited_risk, "
+            "minimal_risk, general_purpose, general_purpose_systemic."
+        )
+    )
+    rationale: str = Field(description="One- or two-sentence justification.")
+    annex_iii_areas: list[str] = Field(
+        default_factory=list,
+        description=(
+            "If tier is high_risk, list the Annex III area names that match "
+            "(e.g. 'Employment, worker management, access to self-employment')."
+        ),
+    )
+    art_5_codes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "If tier is prohibited, list the Article 5 sub-clauses that match "
+            "(e.g. '5(1)(c)', '5(1)(d)')."
+        ),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Bright-line rule layer — Article 5 + GPAI Art. 51 systemic-risk threshold
+# --------------------------------------------------------------------------- #
+
+
+def _kw_match(keyword: str, low_text: str) -> bool:
+    if " " in keyword:
+        return keyword.lower() in low_text
+    return re.search(rf"\b{re.escape(keyword.lower())}\b", low_text) is not None
+
+
+_ART5_COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
             r"\b(police|law\s+enforcement)\b.{0,80}\bpredict\b.{0,80}\b(crime|criminal|offend|reoffend)",
@@ -75,12 +117,10 @@ _COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "5(1)(d)",
     ),
-    # "predict ... who will commit a crime" — variant
     (
         re.compile(r"\bpredict\b.{0,60}\bwho\s+will\s+commit\b.{0,40}\bcrime", re.I | re.S),
         "5(1)(d)",
     ),
-    # "emotion recognition ... (office|workplace|employee|workday)" → 5(1)(f)
     (
         re.compile(
             r"\bemotion\s+recognition\b.{0,80}\b(office|workplace|employee|workday|staff)",
@@ -88,7 +128,6 @@ _COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "5(1)(f)",
     ),
-    # "scrape ... (face|facial) ... (image|photo)" → 5(1)(e)
     (
         re.compile(
             r"\bscrap(?:e|ing|es|ed)\b.{0,40}\b(facial|face)\b.{0,40}\b(image|photo)",
@@ -96,9 +135,6 @@ _COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "5(1)(e)",
     ),
-    # Art 5(1)(c) social scoring — verb-form variants. The narrow keyword
-    # list ("social scoring") missed paraphrases like "scores citizens by
-    # behaviour" or "public authority rates residents based on trust".
     (
         re.compile(
             r"\b(public|government|state|municipal|public\s+sector|public\s+authorit\w*)\b"
@@ -119,120 +155,195 @@ _COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-# Annex III combo patterns — verb-form biometric / emotion / face detection
-# wording variants that the literal keyword scan misses (users describe what
-# their system *does*, not the canonical regulatory noun phrase). Trailing
-# ``\w*`` on the noun matches plurals (``emotions``, ``faces``, ``identifies``).
-_ANNEX_COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    # "analyses / detects / recognises emotions/mood/sentiment"
-    (
-        re.compile(
-            r"\b(analy[sz]\w*|detect\w*|recogni[sz]\w*|monitor\w*|track\w*|infer\w*|classif\w*)\b"
-            r".{0,40}\b(emotion|mood|sentiment|affect)\w*",
-            re.I | re.S,
-        ),
-        "Biometrics",
-    ),
-    # "detects / recognises faces/iris/gait" + plurals
-    (
-        re.compile(
-            r"\b(analy[sz]\w*|detect\w*|recogni[sz]\w*|identif\w*|match\w*)\b"
-            r".{0,40}\b(face|facial|iris|fingerprint|gait|voice\s+id)\w*",
-            re.I | re.S,
-        ),
-        "Biometrics",
-    ),
-    # "recognises individuals/people by their (gait|walking|voice|face)"
-    (
-        re.compile(
-            r"\b(recogni[sz]\w*|identif\w*)\b.{0,40}\b(individual|person|people|visitor|customer|employee)\w*"
-            r".{0,40}\b(walking|gait|face|facial|voice|biometric)\w*",
-            re.I | re.S,
-        ),
-        "Biometrics",
-    ),
-    # CCTV / surveillance camera + biometric / emotion / face context
-    (
-        re.compile(
-            r"\b(cctv|surveillance\s+camera|video\s+feed|video\s+surveillance|security\s+camera)\b"
-            r".{0,80}\b(emotion|mood|face|facial|identif|recogni|biometric)\w*",
-            re.I | re.S,
-        ),
-        "Biometrics",
-    ),
-)
+def _scan_article_5(text: str) -> list[str]:
+    """Return the matching Article 5 sub-clause codes (bright-line override)."""
+
+    low = text.lower()
+    hits: list[str] = []
+    for prac in ARTICLE_5_PROHIBITED:
+        if any(_kw_match(kw, low) for kw in prac.keywords):
+            hits.append(prac.code)
+    for pattern, code in _ART5_COMBO_PATTERNS:
+        if pattern.search(low) and code not in hits:
+            hits.append(code)
+    return hits
 
 
-# GPAI patterns — must run before Annex III so frontier LLMs land on Chapter V
-# (Articles 51-55) instead of accidental Biometrics false-positives.
-_GPAI_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(gpai|general[\s\-_]?purpose(\s+ai)?)\b", re.I),
-    re.compile(r"\b(foundation|frontier|base)\s+(model|llm|ai)\b", re.I),
-    re.compile(r"\b(large\s+language\s+model|llms?)\b", re.I),
-    re.compile(r"\b(text|code|image)?\s*generation\s+(model|service)\b", re.I),
-)
-
-# Systemic-risk GPAI per Art. 51 — 10^25 FLOPs training compute is the
-# Commission's de-facto threshold; "systemic risk" / "frontier" wording also
-# bumps a basic GPAI verdict to the systemic sub-tier.
+# GPAI is detected by literal regulatory markers (Art. 51 threshold language).
+# The LLM also gets to suggest GPAI, but these patterns are 100% confident.
 _GPAI_SYSTEMIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b10\s*\^?\s*25\s*flops?\b", re.I),
-    re.compile(r"\b(systemic[\s\-]risk|systemic\s+risk)\b", re.I),
+    re.compile(r"\b(systemic[\s\-]risk|systemic\s+risk)\s+(model|ai|llm|gpai)\b", re.I),
     re.compile(r"\bfrontier\s+(model|llm|ai)\b", re.I),
 )
 
 
-def _kw_match(keyword: str, low_text: str) -> bool:
-    # Word-boundary match for short keywords, substring for multi-word phrases.
-    if " " in keyword:
-        return keyword.lower() in low_text
-    return re.search(rf"\b{re.escape(keyword.lower())}\b", low_text) is not None
+def _is_systemic_gpai(text: str) -> bool:
+    return any(p.search(text) for p in _GPAI_SYSTEMIC_PATTERNS)
 
 
 # --------------------------------------------------------------------------- #
-# LLM layer (only used when the rule scan is inconclusive)
+# Semantic-similarity Annex III matcher
+# --------------------------------------------------------------------------- #
+
+
+_ANNEX_EMB_CACHE: list[tuple[str, list[float]]] | None = None
+_ANNEX_EMB_LOCK = Lock()
+
+
+def _build_annex_corpus() -> list[tuple[str, str]]:
+    """Build (area, embed_text) tuples. Embed text combines area name +
+    description + a few canonical example phrases so the embedding captures
+    the conceptual breadth of each area, not just the legal definition."""
+
+    examples = {
+        "Biometrics": (
+            "Examples: emotion recognition, face recognition, biometric "
+            "categorisation, voice biometrics, gait recognition, fingerprint "
+            "identification, iris recognition, CCTV face detection."
+        ),
+        "Critical infrastructure": (
+            "Examples: AI controlling the electricity grid, gas distribution "
+            "network, water supply, road traffic signals, railway signalling, "
+            "load balancing for utilities."
+        ),
+        "Education and vocational training": (
+            "Examples: AI scoring student exams, exam proctoring, university "
+            "admission ranking, automated grading, learning outcome assessment."
+        ),
+        "Employment, worker management, access to self-employment": (
+            "Examples: CV screening, resume ranking, candidate selection, "
+            "promotion decisions, employee performance evaluation, task "
+            "allocation between workers, worker monitoring."
+        ),
+        "Access to and enjoyment of essential private and public services and benefits": (
+            "Examples: credit scoring, loan eligibility, mortgage approval, "
+            "welfare benefit eligibility, public assistance triage, life and "
+            "health insurance pricing, emergency dispatch, ambulance triage."
+        ),
+        "Law enforcement": (
+            "Examples: risk assessment of suspects, polygraph analysis, "
+            "evaluating evidence reliability, criminal profiling, recidivism "
+            "prediction, detective support tools."
+        ),
+        "Migration, asylum, border control": (
+            "Examples: border control AI, asylum application processing, "
+            "visa decision support, migrant risk assessment, document "
+            "authenticity at borders."
+        ),
+        "Administration of justice and democratic processes": (
+            "Examples: AI assisting judges, legal research tools for courts, "
+            "fact interpretation for judicial decisions, election influence "
+            "systems, voting behaviour analysis."
+        ),
+    }
+
+    return [
+        (
+            e.area,
+            f"Annex III area: {e.area}. {e.description} "
+            f"{examples.get(e.area, '')}",
+        )
+        for e in ANNEX_III
+    ]
+
+
+def _get_annex_embeddings(llm: LLMClient) -> list[tuple[str, list[float]]]:
+    """Lazily compute + cache Annex III area embeddings (one per process)."""
+
+    global _ANNEX_EMB_CACHE
+    if _ANNEX_EMB_CACHE is not None:
+        return _ANNEX_EMB_CACHE
+    with _ANNEX_EMB_LOCK:
+        if _ANNEX_EMB_CACHE is not None:
+            return _ANNEX_EMB_CACHE
+        corpus = _build_annex_corpus()
+        texts = [t for _, t in corpus]
+        try:
+            vectors = llm.embed(texts)
+        except Exception as exc:
+            logger.warning("Annex III embedding precompute failed: %s", exc)
+            _ANNEX_EMB_CACHE = []
+            return _ANNEX_EMB_CACHE
+        _ANNEX_EMB_CACHE = [
+            (area, vec) for (area, _), vec in zip(corpus, vectors, strict=True)
+        ]
+        logger.info(
+            "Annex III semantic index built: %d areas (dim=%d)",
+            len(_ANNEX_EMB_CACHE),
+            len(_ANNEX_EMB_CACHE[0][1]) if _ANNEX_EMB_CACHE else 0,
+        )
+        return _ANNEX_EMB_CACHE
+
+
+def reset_semantic_cache() -> None:
+    """Test helper — forces the next call to recompute Annex III embeddings."""
+
+    global _ANNEX_EMB_CACHE
+    _ANNEX_EMB_CACHE = None
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _semantic_annex_matches(
+    text: str, llm: LLMClient, threshold: float
+) -> list[tuple[str, float]]:
+    """Return (area, score) pairs sorted by descending cosine similarity,
+    filtered to those above ``threshold``. Empty list on embedder failure."""
+
+    index = _get_annex_embeddings(llm)
+    if not index or not text.strip():
+        return []
+    try:
+        query_vec = llm.embed([text])[0]
+    except Exception as exc:
+        logger.warning("Query embedding failed in semantic matcher: %s", exc)
+        return []
+    scored = [(area, _cosine(query_vec, vec)) for area, vec in index]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [(a, s) for a, s in scored if s >= threshold]
+
+
+# --------------------------------------------------------------------------- #
+# LLM prompt
 # --------------------------------------------------------------------------- #
 
 
 _CLASSIFY_SYSTEM = (
-    "You are an EU AI Act risk classifier. Map the described AI system to one "
-    "of: prohibited, high_risk, limited_risk, minimal_risk."
+    "You are an EU AI Act compliance analyst. You classify AI systems against "
+    "the six-step risk hierarchy of Regulation (EU) 2024/1689. You always "
+    "respond with strict JSON matching the requested schema and you ground "
+    "your verdict in the supplied Annex III candidates whenever possible."
 )
 
-_CLASSIFY_PROMPT = """Classify the system below by EU AI Act risk tier.
 
-Definitions:
-- prohibited: Article 5 — e.g. social scoring, untargeted facial scraping, predictive policing.
-- high_risk: Annex III use cases (employment, education, credit, law enforcement, …) OR Annex I product safety components.
-- limited_risk: subject only to Article 50 transparency (chatbots, deepfakes, synthetic content).
-- minimal_risk: everything else (spam filters, recommender systems, basic productivity tools).
+_CLASSIFY_PROMPT = """Classify the AI system described below against the EU AI Act tier vocabulary.
 
-Reply with STRICT JSON only, no commentary:
-{{"tier": "...", "rationale": "...", "annex_iii": ["...", ...]}}
+Tier definitions:
+- prohibited                 — Article 5 prohibited practices (social scoring, untargeted facial scraping, predictive policing by profiling, real-time remote biometric ID in public spaces for law enforcement, workplace/education emotion recognition, biometric categorisation of sensitive attributes, manipulative/deceptive techniques, exploiting vulnerabilities).
+- high_risk                  — Annex III high-risk use cases (biometrics, critical infrastructure, education, employment, essential services like credit / welfare / insurance / emergency dispatch, law enforcement risk-assessment, migration & border, justice / democratic processes) OR Annex I product-safety components.
+- limited_risk               — Article 50 transparency duties only (chatbots, deepfakes, AI-generated synthetic content, emotion recognition outside workplace/education).
+- minimal_risk               — everything else (spam filters, recommender systems, basic productivity tools, search ranking, etc.).
+- general_purpose            — General-Purpose AI model (Chapter V): foundation model, LLM, multi-purpose generative model offered to downstream deployers.
+- general_purpose_systemic   — A GPAI model that ALSO meets the Article 51 systemic-risk threshold (10^25 FLOPs training compute, OR Commission designation, OR "frontier" model).
+
+Candidate Annex III areas the semantic matcher already surfaced (descending similarity):
+{candidates}
 
 System description:
 {description}
+
+Return strict JSON with: tier, rationale (1-2 sentences), annex_iii_areas (list of names; empty unless tier is high_risk), art_5_codes (list of "5(1)(x)" codes; empty unless tier is prohibited).
 """
-
-
-def _llm_classify(llm: LLMClient, description: str) -> RiskVerdict:
-    raw = llm.generate(
-        _CLASSIFY_PROMPT.format(description=description),
-        system=_CLASSIFY_SYSTEM,
-        temperature=0.0,
-        max_tokens=300,
-    )
-    obj = _safe_json_obj(raw)
-    tier = obj.get("tier", "unknown")
-    if tier not in ("prohibited", "high_risk", "limited_risk", "minimal_risk"):
-        tier = "unknown"
-    return RiskVerdict(
-        tier=tier,  # type: ignore[arg-type]
-        rationale=str(obj.get("rationale", ""))[:500],
-        annex_iii_matches=[str(a) for a in obj.get("annex_iii", [])][:5],
-        article_5_matches=[],
-        confidence=0.5,
-    )
 
 
 # --------------------------------------------------------------------------- #
@@ -246,15 +357,19 @@ def classify(
     *,
     raw_text: str = "",
 ) -> RiskVerdict:
-    """Hybrid classifier: rules first, LLM only on miss.
+    """LLM-first hybrid classifier.
 
-    The rule scan runs over BOTH the structured intake fields and the
-    original ``raw_text`` (when supplied) so a weak intake LLM can't drop
-    a keyword like "CV screening" and trick the system into the wrong tier.
+    Order:
+    1. Article 5 bright-line rules → prohibited (confidence 1.0).
+    2. Article 51 GPAI systemic-risk markers → general_purpose_systemic (confidence 1.0).
+    3. Semantic Annex III matcher surfaces candidate areas.
+    4. LLM with structured output returns the final tier verdict.
+    5. On LLM failure, fall back to semantic-match → high_risk if any
+       candidates score, otherwise heuristic by chatbot/generative keywords.
     """
 
     llm = llm or get_llm()
-    text_for_rules = " ".join(
+    corpus = " ".join(
         filter(
             None,
             [
@@ -267,77 +382,120 @@ def classify(
         )
     )
 
-    annex_hits, art5_hits = _rule_scan(text_for_rules)
-    if art5_hits:
+    # 1. Article 5 bright-line override.
+    art5_codes = _scan_article_5(corpus)
+    if art5_codes:
         return RiskVerdict(
             tier="prohibited",
-            rationale=f"Matches Article 5 prohibited practice(s): {', '.join(art5_hits)}.",
-            annex_iii_matches=annex_hits,
-            article_5_matches=art5_hits,
+            rationale=(
+                "Matches Article 5 prohibited practice(s): "
+                f"{', '.join(art5_codes)}. Article 5 patterns are enumerated "
+                "regulatory definitions and override the LLM verdict."
+            ),
+            annex_iii_matches=[],
+            article_5_matches=art5_codes,
             confidence=1.0,
         )
 
-    # GPAI detection before Annex III so frontier LLMs surface as GPAI rather
-    # than a Biometrics false-positive when their description happens to mention
-    # "voice" or "face". Two sub-tiers per Chapter V — Article 51 systemic-risk
-    # threshold (10^25 FLOPs / EU Commission designation).
-    gpai_systemic = any(p.search(text_for_rules) for p in _GPAI_SYSTEMIC_PATTERNS)
-    gpai_basic = any(p.search(text_for_rules) for p in _GPAI_PATTERNS)
-    if gpai_systemic or gpai_basic:
-        tier_g: RiskTier = "general_purpose_systemic" if gpai_systemic else "general_purpose"
-        rationale = (
-            "Matches systemic-risk GPAI thresholds (Art. 51) — Articles 53–55 apply."
-            if gpai_systemic
-            else "Matches general-purpose AI model patterns — Articles 53–54 apply."
-        )
+    # 2. Article 51 systemic-risk GPAI bright-line override.
+    if _is_systemic_gpai(corpus):
         return RiskVerdict(
-            tier=tier_g,
-            rationale=rationale,
+            tier="general_purpose_systemic",
+            rationale=(
+                "Matches Article 51 systemic-risk GPAI markers (≥10^25 FLOPs "
+                "training compute or 'frontier' designation). Articles 53-55 apply."
+            ),
             annex_iii_matches=[],
             article_5_matches=[],
-            confidence=0.95,
-        )
-
-    if annex_hits:
-        # Limited-risk transparency duties only attach to chatbots/deepfakes; high-risk
-        # Annex III hits dominate over limited-risk hints.
-        return RiskVerdict(
-            tier="high_risk",
-            rationale=f"Matches Annex III high-risk area(s): {', '.join(annex_hits)}.",
-            annex_iii_matches=annex_hits,
-            article_5_matches=[],
             confidence=1.0,
         )
 
+    # 3. Semantic Annex III candidates.
+    semantic_hits = _semantic_annex_matches(
+        corpus, llm, settings.semantic_match_threshold
+    )
+    candidate_list = (
+        "\n".join(f"- {a} (sim={s:.2f})" for a, s in semantic_hits[:6])
+        if semantic_hits
+        else "- (none above threshold)"
+    )
+
+    # 4. LLM-driven structured verdict.
+    prompt = _CLASSIFY_PROMPT.format(candidates=candidate_list, description=corpus)
+    try:
+        result = llm.generate_structured(
+            prompt,
+            ClassificationResult,
+            system=_CLASSIFY_SYSTEM,
+            temperature=0.0,
+            max_tokens=400,
+        )
+        tier = _coerce_tier(result.tier)
+        return RiskVerdict(
+            tier=tier,
+            rationale=result.rationale[:500] or "LLM verdict (no rationale provided).",
+            annex_iii_matches=[
+                a for a in (result.annex_iii_areas or [])[:6] if isinstance(a, str)
+            ],
+            article_5_matches=[
+                c for c in (result.art_5_codes or [])[:6] if isinstance(c, str)
+            ],
+            confidence=0.85 if semantic_hits else 0.7,
+        )
+    except StructuredOutputError as exc:
+        logger.warning("LLM structured classification failed: %s — using fallback", exc)
+    except Exception as exc:
+        logger.warning("LLM classification crashed: %s — using fallback", exc)
+
+    # 5. Graceful degradation: semantic hits → high_risk, else heuristic.
+    if semantic_hits:
+        areas = [a for a, _ in semantic_hits[:3]]
+        return RiskVerdict(
+            tier="high_risk",
+            rationale=(
+                "Fallback verdict: semantic similarity placed the description "
+                f"in Annex III area(s) {', '.join(areas)} (LLM unavailable)."
+            ),
+            annex_iii_matches=areas,
+            article_5_matches=[],
+            confidence=0.55,
+        )
     if re.search(
         r"\b(chatbot|deepfake|synthetic\s+(media|content)|generative|voice\s+assistant|"
         r"virtual\s+assistant|conversational\s+agent)\b",
-        text_for_rules,
+        corpus,
         re.I,
     ):
         return RiskVerdict(
             tier="limited_risk",
-            rationale="Generative / conversational patterns trigger Article 50 transparency obligations.",
+            rationale="Fallback verdict: generative/conversational pattern → Article 50 transparency.",
             annex_iii_matches=[],
             article_5_matches=[],
-            confidence=0.9,
+            confidence=0.5,
         )
+    return RiskVerdict(
+        tier="minimal_risk",
+        rationale="Fallback verdict: no Annex III, Article 5 or GPAI markers matched.",
+        annex_iii_matches=[],
+        article_5_matches=[],
+        confidence=0.4,
+    )
 
-    logger.info("Rule scan inconclusive — invoking LLM classifier.")
-    return _llm_classify(llm, text_for_rules)
 
-
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
-
-
-def _safe_json_obj(raw: str) -> dict:
-    raw = raw.strip()
-    m = re.search(r"\{.*\}", raw, re.S)
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return {}
+def _coerce_tier(raw: Any) -> RiskTier:
+    val = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if val in _TIER_LITERAL:
+        return val  # type: ignore[return-value]
+    # Forgiving aliases the model sometimes emits.
+    aliases = {
+        "gpai": "general_purpose",
+        "general_purpose_ai": "general_purpose",
+        "general_purpose_model": "general_purpose",
+        "gpai_systemic": "general_purpose_systemic",
+        "high": "high_risk",
+        "limited": "limited_risk",
+        "minimal": "minimal_risk",
+    }
+    if val in aliases:
+        return aliases[val]  # type: ignore[return-value]
+    return "unknown"

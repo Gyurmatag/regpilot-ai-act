@@ -1,23 +1,28 @@
 """Intake classifier node.
 
-Parses free-text user input into a ``StructuredIntake`` record so downstream
-nodes don't have to keep re-reading the same blob.
+Parses free-text user input into a structured intake record. LLM-primary with
+a deterministic heuristic fallback.
 
-Two paths:
+Default path:
 
-* **Fast (default, ``REGPILOT_INTAKE_FAST=true``)** — keyword/regex extraction
-  for ``domain``, ``user_role``, and ``data_modalities``. Returns in <10 ms.
-  Used by default because the rule-based ``risk_classifier_tool`` runs against
-  the raw user input anyway, so the structured intake is mostly informational.
-* **LLM** — qwen2.5:3b-instruct via Ollama. Set ``REGPILOT_INTAKE_FAST=false``
-  to opt in. Costs ~20–30 s per request on CPU.
+1. LLM extracts the fields via ``generate_structured`` against the
+   :class:`IntakeSchema` Pydantic model. Providers with native structured
+   output (OpenAI ``response_format``, Ollama ``format=json``, Anthropic
+   tool use) return schema-conformant JSON without regex post-processing.
+2. If the LLM call raises (network failure, schema validation, model
+   refusal), the regex/keyword heuristic kicks in so the chain never crashes.
+
+Set ``REGPILOT_INTAKE_FAST=true`` to force the heuristic-only path (useful
+on CPU-only Ollama where a 20-30 s intake call is unaffordable).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from regpilot.config import settings
 from regpilot.llm import LLMClient, get_llm
@@ -26,89 +31,127 @@ from regpilot.state import RegPilotState, StructuredIntake, TraceEvent
 logger = logging.getLogger(__name__)
 
 
+# --------------------------------------------------------------------------- #
+# Pydantic schema the LLM fills in
+# --------------------------------------------------------------------------- #
+
+
+class IntakeSchema(BaseModel):
+    """Schema the LLM populates from free-text user input."""
+
+    system_purpose: str = Field(
+        description="One-sentence summary of what the AI system does."
+    )
+    deployment_context: str = Field(
+        default="",
+        description="Where / how the system is deployed (e.g. EU market, internal-only).",
+    )
+    data_modalities: list[str] = Field(
+        default_factory=list,
+        description="Modalities the system processes (text, image, audio, video, biometric, tabular).",
+    )
+    user_role: Literal["provider", "deployer", "importer", "distributor", "unknown"] = (
+        Field(
+            default="unknown",
+            description="The user's role in the AI value chain per the EU AI Act.",
+        )
+    )
+    domain: str = Field(
+        default="general",
+        description="Short domain label (HR, healthcare, education, law enforcement, general, ...).",
+    )
+    notes: str = Field(
+        default="",
+        description="Other relevant facts (e.g. generative model, EU-only deployment, GPAI).",
+    )
+
+
 _SYSTEM = (
-    "You are a structured-data extractor. Given a natural-language description "
-    "of an AI system, extract the requested fields as STRICT JSON. No commentary."
+    "You are a structured-data extractor for EU AI Act compliance intake. "
+    "Given a natural-language description of an AI system, identify each "
+    "field accurately. Always pick the most specific domain label that "
+    "applies. Always populate data_modalities from the description; default "
+    "to ['text'] if no modality is mentioned. Always emit valid JSON."
 )
 
-_PROMPT = """Extract the following fields from the description and reply with STRICT JSON only.
 
-Schema:
-{{
-  "system_purpose":      "one-sentence summary of what the system does",
-  "deployment_context":  "where/how it is deployed",
-  "data_modalities":     ["text" | "image" | "audio" | "video" | "biometric" | "tabular"],
-  "user_role":           "provider" | "deployer" | "importer" | "distributor" | "unknown",
-  "domain":              "short label, e.g. HR, healthcare, education, law enforcement, general",
-  "notes":               "any other relevant detail (e.g. EU market, generative)"
-}}
+_PROMPT = """Extract structured fields from the AI system description.
 
-intake_classifier — Description:
+Description:
 {description}
 """
+
+
+# --------------------------------------------------------------------------- #
+# Node
+# --------------------------------------------------------------------------- #
 
 
 def intake_classifier(state: RegPilotState) -> RegPilotState:
     raw_input = state.get("user_input", "").strip()
 
-    if settings.intake_fast:
-        structured = _heuristic(raw_input)
-        mode = "heuristic"
-    else:
-        llm: LLMClient = get_llm()
-        try:
-            raw = llm.generate(
-                _PROMPT.format(description=raw_input),
-                system=_SYSTEM,
-                temperature=0.0,
-                max_tokens=300,
-            )
-            structured = _parse(raw)
-            mode = "llm"
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("intake LLM failed: %s — falling back to heuristics", exc)
-            structured = _heuristic(raw_input)
-            mode = "heuristic-fallback"
+    structured, mode = _extract(raw_input)
 
     if not structured.get("system_purpose"):
-        structured["system_purpose"] = raw_input[:200]
+        structured["system_purpose"] = raw_input[:200] or "the described AI system"
     if not structured.get("user_role"):
         structured["user_role"] = "unknown"
     if not structured.get("domain"):
         structured["domain"] = "general"
+    if not structured.get("data_modalities"):
+        structured["data_modalities"] = ["text"]
 
     return {
         "structured": structured,
-        "trace": _append_trace(
-            state,
+        "trace": [
+            *state.get("trace", []),
             TraceEvent(
                 node="intake_classifier",
                 summary=f"structured the user description (mode={mode})",
                 payload={"structured": dict(structured), "mode": mode},
             ),
-        ),
+        ],
     }
 
 
-def _parse(raw: str) -> StructuredIntake:
-    m = re.search(r"\{.*\}", raw, re.S)
-    if not m:
-        return {}
+def _extract(raw_input: str) -> tuple[StructuredIntake, str]:
+    """Return (structured, mode-label). LLM-first with heuristic fallback."""
+
+    if settings.intake_fast:
+        return _heuristic(raw_input), "heuristic"
+
+    llm: LLMClient = get_llm()
     try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return {}
-    out: StructuredIntake = {}
-    for k in ("system_purpose", "deployment_context", "domain", "notes"):
-        v = obj.get(k)
-        if isinstance(v, str):
-            out[k] = v
-    if isinstance(obj.get("data_modalities"), list):
-        out["data_modalities"] = [str(x) for x in obj["data_modalities"] if isinstance(x, str)]
-    role = obj.get("user_role")
-    if role in ("provider", "deployer", "importer", "distributor", "unknown"):
-        out["user_role"] = role  # type: ignore[assignment]
+        result = llm.generate_structured(
+            _PROMPT.format(description=raw_input),
+            IntakeSchema,
+            system=_SYSTEM,
+            temperature=0.0,
+            max_tokens=400,
+        )
+        return _schema_to_intake(result), "llm"
+    except Exception as exc:
+        logger.warning("intake LLM failed: %s — falling back to heuristic", exc)
+        return _heuristic(raw_input), "heuristic-fallback"
+
+
+def _schema_to_intake(s: IntakeSchema) -> StructuredIntake:
+    out: StructuredIntake = {
+        "system_purpose": (s.system_purpose or "").strip(),
+        "deployment_context": (s.deployment_context or "").strip(),
+        "domain": (s.domain or "general").strip(),
+        "notes": (s.notes or "").strip(),
+        "user_role": s.user_role,
+        "data_modalities": [
+            m.strip().lower() for m in (s.data_modalities or []) if isinstance(m, str) and m.strip()
+        ],
+    }
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Heuristic fallback (kept for offline / CPU-Ollama-overload safety)
+# --------------------------------------------------------------------------- #
 
 
 _DOMAIN_KEYWORDS: list[tuple[re.Pattern[str], str]] = [
@@ -139,13 +182,7 @@ _MODALITY_KEYWORDS: list[tuple[re.Pattern[str], str]] = [
 
 
 def _heuristic(text: str) -> StructuredIntake:
-    """Pure-Python field extractor — no LLM, no I/O, sub-ms latency.
-
-    Covers ~90% of real PwC consulting inputs based on the testset patterns.
-    The risk_classifier_tool runs against the raw user input separately, so
-    this structured intake is informational; getting a few fields wrong
-    doesn't affect classification correctness.
-    """
+    """Pure-Python keyword extractor — no LLM, no I/O, sub-ms latency."""
 
     low = text.lower()
 
@@ -161,9 +198,5 @@ def _heuristic(text: str) -> StructuredIntake:
         "data_modalities": modalities,
         "user_role": role,  # type: ignore[typeddict-item]
         "domain": domain,
-        "notes": "heuristic intake (fast path)",
+        "notes": "heuristic intake (fallback path)",
     }
-
-
-def _append_trace(state: RegPilotState, ev: TraceEvent) -> list[TraceEvent]:
-    return [*state.get("trace", []), ev]

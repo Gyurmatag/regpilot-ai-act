@@ -6,23 +6,48 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Architecture — LLM-first refactor (Option C)
+
+The hot path is now genuinely LLM-driven instead of regex-driven. Rules
+are reserved for bright-line regulatory enumerations (Article 5
+prohibited list, GPAI Article 51 systemic-risk threshold) where
+auditability requires deterministic behaviour; everything else flows
+through the LLM with structured output.
+
 ### Added
-- Structured JSON logging (`REGPILOT_LOG_JSON=true`) via `regpilot.observability._JsonFormatter` — log-shipper-ready (Loki / Datadog / OpenSearch).
-- Per-node exception capture decorator (`trace_node`) — failing LLM calls bump `state["error_count"]` and record `state["last_error"]` instead of crashing the chain.
-- Optional Langfuse tracing hook (env-gated by `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`; no-op if missing).
-- GPAI test question (`q16`) covering Articles 53/54/55 with the `2025-08-02` GPAI governance application date.
-- `CHANGELOG.md`, `SECURITY.md`, `CODEOWNERS`, `Makefile` for one-line common ops.
-- **Two new risk tiers**: `general_purpose` and `general_purpose_systemic` — Chapter V of the AI Act now has first-class representation in the classifier output and the UI tier badge. Frontier LLMs no longer mis-label as "Minimal risk".
-- **Verb-form biometric / emotion / face detection patterns** in the rule classifier (`_ANNEX_COMBO_PATTERNS`) — "analyses customer emotions in CCTV", "detects faces of visitors", "recognises individuals by their walking pattern" all now correctly route to Annex III Biometrics (high-risk) instead of falling through to `minimal_risk`.
-- **Art 5(1)(c) social-scoring combo patterns** — verb-form paraphrases like "scores citizens by behaviour" or "rates residents based on trustworthiness" now correctly classify as `prohibited` even without the canonical "social scoring" phrase.
-- **Systemic-risk flag** on `compute_deadlines(..., systemic_risk=True)` — basic GPAI now correctly omits Art. 55, which only applies to systemic-risk models per Art. 51.
-- **16 new parametrised regression tests** covering biometric verb forms, social-scoring paraphrases, and GPAI sub-tier detection.
+- **Provider abstraction** — one `LLMClient` interface, four backends:
+  - `OllamaClient` (default, fully local; uses native `format=json` for structured output)
+  - `OpenAIClient` (hosted; uses `beta.chat.completions.parse` with Pydantic `response_format`)
+  - `AnthropicClient` (hosted; uses tool calling to force schema-conformant output)
+  - `StubClient` (deterministic mock for unit tests and offline dev)
+  - `_CompositeClient` wires Ollama embeddings into the Anthropic chat client (Anthropic has no embedding API)
+  - Provider selected via `REGPILOT_LLM=ollama|openai|anthropic|stub`
+- **Structured output API** — every client implements `generate_structured(prompt, schema)` taking a Pydantic class and returning a validated instance. Falls back to JSON-prompt parsing if the native API path fails. Surfaces `StructuredOutputError` so callers can degrade gracefully.
+- **Semantic-similarity Annex III classifier** — each Annex III area is embedded once per process (lazy + cached); user input is embedded; cosine similarity surfaces candidate areas above `REGPILOT_SEM_THRESHOLD`. This *generalises to paraphrases* — no more hand-written verb-form regex patterns.
+- **`ClassificationResult`, `IntakeSchema`, `ReportSections` Pydantic schemas** — the LLM fills these in via structured output; downstream nodes consume validated objects, not regex-parsed JSON.
+- **Two new risk tiers**: `general_purpose` and `general_purpose_systemic` — Chapter V of the AI Act has first-class representation; UI badge shows "GPAI · systemic risk" in violet.
+- **42 new tests** covering provider abstractions, structured output (per-provider), semantic similarity helpers, bright-line rule overrides, and graceful degradation paths. Suite at 133 tests / 91% coverage.
+
+### Changed
+- **Default behaviour flipped** — `REGPILOT_INTAKE_FAST`, `REGPILOT_RERANK_FAST`, `REGPILOT_SYNTH_FAST` all default to `false` now (LLM-primary). Set any to `true` to fall back to the deterministic regex/template path for that node (useful on CPU-only Ollama).
+- **Intake node** now calls `llm.generate_structured(IntakeSchema)` by default; regex heuristic survives as a fallback for LLM failures.
+- **Synthesizer** now generates the narrative sections (executive summary, risk classification rationale, recommended next steps) via `llm.generate_structured(ReportSections)`. The deterministic scaffold (obligations table, lifecycle mapping, frameworks alignment) is preserved for grounding — every citation flows from the deadline calculator or retrieved chunks, never from the LLM's imagination.
+- **Risk classifier** rebuilt: bright-line rules (Article 5, Article 51 GPAI threshold) run first, then semantic Annex III matching surfaces candidates, then the LLM returns the final verdict via structured output. Confidence field exposes whether the verdict came from a rule (`1.0`) or the LLM (`0.7`-`0.85`).
+- **Ollama HTTP timeout raised** from 30 s to 60 s in docker-compose because LLM-primary mode runs longer single calls.
+- **Streamlit healthcheck `start_period` raised** from 30 s to 60 s for the longer warmup.
+
+### Added — earlier (still unreleased)
+- Structured JSON logging (`REGPILOT_LOG_JSON=true`) via `regpilot.observability._JsonFormatter`.
+- Per-node exception capture decorator (`trace_node`) — failing LLM calls bump `state["error_count"]` instead of crashing the chain.
+- Optional Langfuse tracing hook (env-gated; no-op if creds missing).
+- `CHANGELOG.md`, `SECURITY.md`, `CODEOWNERS`, `Makefile` for repo governance.
+- Verb-form combo patterns (preserved as `_ART5_COMBO_PATTERNS` for bright-line Article 5 paraphrases that are still legally enumerated).
 
 ### Fixed
-- Edge-case stress test exposed three classification gaps; all fixed and locked with regression tests:
-  - Frontier LLM descriptions silently fell through to `unknown` because the classifier vocabulary lacked GPAI tiers.
-  - Social-scoring descriptions in public-sector RFP language ("scores citizens by behaviour") classified as `high_risk` instead of `prohibited`.
-  - Biometric descriptions using verb forms ("detects faces", "analyses emotions") were missed by the noun-only keyword scan.
+- Edge-case stress test from the previous round exposed three classification gaps; all fixed by the architectural refactor:
+  - Frontier LLM descriptions now route to `general_purpose_systemic` via the GPAI bright-line rule + first-class tier vocabulary.
+  - Social-scoring paraphrases route to `prohibited` via the Article 5 bright-line rule + verb-form combo patterns (`5(1)(c)`).
+  - Biometric verb-form descriptions ("analyses emotions", "detects faces") now route via the semantic matcher OR the LLM verdict — no more hand-written regex chase.
 
 ## [0.4.0] — 2026-05-23 — Production hardening
 
