@@ -7,7 +7,6 @@ The report must cite Articles in ``Art. N`` form so the validator can verify the
 from __future__ import annotations
 
 import logging
-import textwrap
 
 from regpilot.llm import LLMClient, get_llm
 from regpilot.state import RegPilotState, TraceEvent
@@ -121,20 +120,18 @@ def _fallback_report(structured, tier, obligations, retrieved) -> str:
         f"- **{o['applies_from']} — {o['article']}**: {o['obligation']}"
         for o in obligations
     )
-    return textwrap.dedent(
-        f"""\
-        ## Executive summary
-        The described system is classified as **{tier}** under the EU AI Act.
-
-        ## Risk classification
-        Based on the intake, the system falls into the *{tier}* tier. Relevant Articles: {", ".join(cited) or "n/a"}.
-
-        ## Obligations & deadlines
-        {bullets or "- No mandatory obligations."}
-
-        ## Recommended next steps
-        1. Confirm the classification with legal counsel.
-        2. Map obligations to internal owners and target dates.
-        3. Establish documentation per Annex IV (if high-risk).
-        """
-    ).strip()
+    # Plain string (no leading indentation) so Streamlit's markdown parser
+    # doesn't treat the block as a fenced code section.
+    return (
+        f"## Executive summary\n"
+        f"The described system is classified as **{tier}** under the EU AI Act.\n\n"
+        f"## Risk classification\n"
+        f"Based on the intake, the system falls into the *{tier}* tier. "
+        f"Relevant Articles: {', '.join(cited) or 'n/a'}.\n\n"
+        f"## Obligations & deadlines\n"
+        f"{bullets or '- No mandatory obligations.'}\n\n"
+        f"## Recommended next steps\n"
+        f"1. Confirm the classification with legal counsel.\n"
+        f"2. Map obligations to internal owners and target dates.\n"
+        f"3. Establish documentation per Annex IV (if high-risk).\n"
+    )
