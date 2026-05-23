@@ -74,6 +74,45 @@ def test_risk_classifier_catches_biometric_verb_forms(description: str) -> None:
     assert any("Biometrics" in m for m in v.annex_iii_matches)
 
 
+@pytest.mark.parametrize(
+    "description",
+    [
+        # Art 5(1)(c) social scoring — verb-form paraphrases of the regulatory text.
+        "Public sector tool that scores citizens by behaviour.",
+        "Government AI that rates residents based on social trustworthiness.",
+        "Municipal scoring system that ranks households by their behaviour patterns.",
+        "Public authority that scores individuals by loyalty and social conformity.",
+    ],
+)
+def test_risk_classifier_catches_social_scoring_paraphrases(description: str) -> None:
+    """Regression: keyword scan only matched "social scoring" / "social rating"
+    and missed paraphrases like "scores citizens by behaviour" — exactly how
+    real public-sector descriptions read. These must hit Art 5(1)(c)."""
+
+    v = classify({"system_purpose": description, "domain": "", "notes": ""})
+    assert v.tier == "prohibited", f"{description!r} → {v.tier!r}, expected prohibited"
+    assert "5(1)(c)" in v.article_5_matches
+
+
+@pytest.mark.parametrize(
+    "description,expected_tier",
+    [
+        # GPAI sub-tier detection — frontier markers force systemic, others basic.
+        ("Frontier LLM with more than 10^25 FLOPs offered as an API.", "general_purpose_systemic"),
+        ("We host a foundation model accessible via REST API.", "general_purpose"),
+        ("Our company runs a large language model service.", "general_purpose"),
+        ("Systemic-risk GPAI model deployed across multiple verticals.", "general_purpose_systemic"),
+        ("A general-purpose AI assistant for marketing copy.", "general_purpose"),
+    ],
+)
+def test_risk_classifier_assigns_gpai_subtier(description: str, expected_tier: str) -> None:
+    """GPAI patterns must surface as ``general_purpose`` / ``general_purpose_systemic``
+    rather than falling through to ``minimal_risk`` or the LLM fallback."""
+
+    v = classify({"system_purpose": description, "domain": "", "notes": ""})
+    assert v.tier == expected_tier, f"{description!r} → {v.tier!r}, expected {expected_tier!r}"
+
+
 # --------------------------------------------------------------------------- #
 # deadline_calculator
 # --------------------------------------------------------------------------- #

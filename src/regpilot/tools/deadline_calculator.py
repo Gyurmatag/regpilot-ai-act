@@ -49,8 +49,24 @@ ANNEX_I_HIGH_RISK_APPLY = date(2027, 8, 2)
 def compute_deadlines(
     system_type: SystemType,
     user_role: UserRole = "provider",
+    *,
+    systemic_risk: bool = False,
 ) -> list[DeadlineInfo]:
-    """Return the chronological list of obligations + deadlines that apply."""
+    """Return the chronological list of obligations + deadlines that apply.
+
+    Parameters
+    ----------
+    system_type:
+        Top-level system classification driving the obligation set.
+    user_role:
+        Provider, deployer, importer, or distributor — different obligation
+        subsets attach to each role.
+    systemic_risk:
+        Only meaningful when ``system_type == 'general_purpose_ai'``. When
+        ``True``, Article 55 systemic-risk obligations (model evaluation,
+        adversarial testing, incident reporting, cybersecurity) are added on
+        top of the baseline Art. 53/54 GPAI obligations.
+    """
 
     out: list[DeadlineInfo] = []
 
@@ -122,31 +138,32 @@ def compute_deadlines(
                 applies_from=GPAI_GOVERNANCE_APPLY,
             )
         )
-        out.append(
-            DeadlineInfo(
-                obligation=(
-                    "Systemic-risk GPAI models (≥10^25 FLOPs training compute): model evaluation, "
-                    "adversarial testing, systemic-risk assessment + mitigation."
-                ),
-                article="Art. 55",
-                applies_from=GPAI_GOVERNANCE_APPLY,
-                note="Only applies to GPAI models with systemic risk (Art. 51).",
+        if systemic_risk:
+            out.append(
+                DeadlineInfo(
+                    obligation=(
+                        "Systemic-risk GPAI models (≥10^25 FLOPs training compute): model evaluation, "
+                        "adversarial testing, systemic-risk assessment + mitigation."
+                    ),
+                    article="Art. 55",
+                    applies_from=GPAI_GOVERNANCE_APPLY,
+                    note="Only applies to GPAI models with systemic risk (Art. 51).",
+                )
             )
-        )
-        out.append(
-            DeadlineInfo(
-                obligation="Systemic-risk GPAI: report serious incidents to the AI Office and national authorities without undue delay.",
-                article="Art. 55",
-                applies_from=GPAI_GOVERNANCE_APPLY,
+            out.append(
+                DeadlineInfo(
+                    obligation="Systemic-risk GPAI: report serious incidents to the AI Office and national authorities without undue delay.",
+                    article="Art. 55",
+                    applies_from=GPAI_GOVERNANCE_APPLY,
+                )
             )
-        )
-        out.append(
-            DeadlineInfo(
-                obligation="Systemic-risk GPAI: ensure adequate cybersecurity protection of the model + physical infrastructure.",
-                article="Art. 55",
-                applies_from=GPAI_GOVERNANCE_APPLY,
+            out.append(
+                DeadlineInfo(
+                    obligation="Systemic-risk GPAI: ensure adequate cybersecurity protection of the model + physical infrastructure.",
+                    article="Art. 55",
+                    applies_from=GPAI_GOVERNANCE_APPLY,
+                )
             )
-        )
         return out
 
     # ----- Annex III high-risk systems ------------------------------------- #

@@ -11,6 +11,8 @@ RiskTier = Literal[
     "high_risk",
     "limited_risk",
     "minimal_risk",
+    "general_purpose",
+    "general_purpose_systemic",
     "unknown",
 ]
 

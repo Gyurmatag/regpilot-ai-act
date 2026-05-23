@@ -168,6 +168,19 @@ _NEXT_STEPS: dict[str, list[str]] = {
         "Consult legal counsel on remediation, redesign, or withdrawal.",
         "Communicate the change to internal stakeholders and customers.",
     ],
+    "general_purpose": [
+        "Prepare Article 53 technical documentation (Annex XI) and the training-data summary template.",
+        "Publish a copyright-compliance policy aligned with Art. 4(3) of the Copyright Directive.",
+        "Designate an EU authorised representative if not established in the Union (Art. 54).",
+        "Monitor whether your model crosses the Art. 51 systemic-risk threshold (10^25 FLOPs or Commission designation).",
+    ],
+    "general_purpose_systemic": [
+        "Run pre-deployment model evaluations and adversarial testing per Art. 55(1)(a).",
+        "Track and document systemic risks across the model lifecycle (Art. 55(1)(b)).",
+        "Set up serious-incident reporting to the AI Office without undue delay (Art. 55(1)(c)).",
+        "Ensure adequate cybersecurity protection of the model and physical infrastructure (Art. 55(1)(d)).",
+        "Complete Art. 53 GPAI provider obligations (technical documentation, training summary, copyright policy).",
+    ],
     "unknown": [
         "Re-classify with a more detailed system description.",
         "Engage legal counsel for a definitive interpretation.",
@@ -180,6 +193,8 @@ _TIER_LABEL: dict[str, str] = {
     "limited_risk": "Limited risk",
     "minimal_risk": "Minimal risk",
     "prohibited": "Prohibited",
+    "general_purpose": "General-purpose AI (GPAI)",
+    "general_purpose_systemic": "GPAI with systemic risk",
     "unknown": "Unknown",
 }
 

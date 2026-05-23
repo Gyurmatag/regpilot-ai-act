@@ -47,11 +47,13 @@ st.set_page_config(
 
 
 _TIER_PALETTE = {
-    "prohibited":   ("Prohibited",   "#7f1d1d", "#fee2e2"),
-    "high_risk":    ("High risk",    "#9a3412", "#ffedd5"),
-    "limited_risk": ("Limited risk", "#854d0e", "#fef9c3"),
-    "minimal_risk": ("Minimal risk", "#166534", "#dcfce7"),
-    "unknown":      ("Unknown",      "#374151", "#e5e7eb"),
+    "prohibited":               ("Prohibited",          "#7f1d1d", "#fee2e2"),
+    "high_risk":                ("High risk",           "#9a3412", "#ffedd5"),
+    "limited_risk":             ("Limited risk",        "#854d0e", "#fef9c3"),
+    "minimal_risk":             ("Minimal risk",        "#166534", "#dcfce7"),
+    "general_purpose":          ("GPAI model",          "#1e40af", "#dbeafe"),
+    "general_purpose_systemic": ("GPAI · systemic risk","#5b21b6", "#ede9fe"),
+    "unknown":                  ("Unknown",             "#374151", "#e5e7eb"),
 }
 
 

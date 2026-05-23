@@ -7,6 +7,7 @@ obligations with concrete dates (via ``deadline_calculator_tool``).
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -22,6 +23,18 @@ from regpilot.tools.deadline_calculator import (
 logger = logging.getLogger(__name__)
 
 
+# Lexical hints that a system is a General-Purpose AI model under Chapter V
+# of the AI Act (Articles 51-55). Verb-form / common-shorthand vocabulary —
+# users rarely type the literal phrase "general-purpose AI".
+_GPAI_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(gpai|general[\s\-_]?purpose(\s+ai)?)\b", re.I),
+    re.compile(r"\b(foundation|frontier)\s+(model|llm|ai)\b", re.I),
+    re.compile(r"\b(large\s+language\s+model|llm)s?\b", re.I),
+    re.compile(r"\b10\s*\^?\s*25\s*flops?\b", re.I),
+    re.compile(r"\bsystemic[\s\-]risk\s+(model|ai|llm)\b", re.I),
+)
+
+
 def obligation_mapper(state: RegPilotState) -> RegPilotState:
     tier = state.get("risk_tier", "minimal_risk")
     structured = state.get("structured") or {}
@@ -29,7 +42,8 @@ def obligation_mapper(state: RegPilotState) -> RegPilotState:
     role = cast(UserRole, structured.get("user_role", "provider") or "provider")
 
     system_type = _tier_to_system_type(tier, structured)
-    deadlines = compute_deadlines(system_type, role)
+    systemic_risk = tier == "general_purpose_systemic"
+    deadlines = compute_deadlines(system_type, role, systemic_risk=systemic_risk)
 
     cited_articles = {d["article"] for d in retrieved if d.get("article")} | {
         info.article.replace("Art. ", "") for info in deadlines
@@ -74,9 +88,17 @@ def obligation_mapper(state: RegPilotState) -> RegPilotState:
 
 
 def _tier_to_system_type(tier: str, structured: Mapping[str, Any]) -> SystemType:
-    notes = (structured.get("notes") or "").lower()
-    purpose = (structured.get("system_purpose") or "").lower()
-    if "gpai" in notes or "general-purpose" in notes or "general-purpose" in purpose:
+    # Authoritative GPAI tier wins immediately (risk classifier did the detection).
+    if tier in ("general_purpose", "general_purpose_systemic"):
+        return "general_purpose_ai"
+
+    # Legacy fallback for cases where the classifier didn't flag GPAI but the
+    # intake corpus clearly describes one (kept as a safety net).
+    corpus = " ".join(
+        str(structured.get(k, "") or "")
+        for k in ("system_purpose", "deployment_context", "domain", "notes")
+    )
+    if any(pat.search(corpus) for pat in _GPAI_PATTERNS):
         return "general_purpose_ai"
 
     return {

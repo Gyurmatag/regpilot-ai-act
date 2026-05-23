@@ -96,6 +96,26 @@ _COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "5(1)(e)",
     ),
+    # Art 5(1)(c) social scoring — verb-form variants. The narrow keyword
+    # list ("social scoring") missed paraphrases like "scores citizens by
+    # behaviour" or "public authority rates residents based on trust".
+    (
+        re.compile(
+            r"\b(public|government|state|municipal|public\s+sector|public\s+authorit\w*)\b"
+            r".{0,80}\b(score|scores|scoring|rate|rates|rating|rank|ranks|ranking)\b"
+            r".{0,80}\b(citizen|resident|individual|person|people|household)",
+            re.I | re.S,
+        ),
+        "5(1)(c)",
+    ),
+    (
+        re.compile(
+            r"\b(score|rate|rank)\w*\b.{0,40}\b(citizen|resident|individual|person|people|household)"
+            r".{0,80}\b(behaviour|behavior|trustworth|reliab|loyalty|conformity|social)",
+            re.I | re.S,
+        ),
+        "5(1)(c)",
+    ),
 )
 
 
@@ -140,6 +160,25 @@ _ANNEX_COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "Biometrics",
     ),
+)
+
+
+# GPAI patterns — must run before Annex III so frontier LLMs land on Chapter V
+# (Articles 51-55) instead of accidental Biometrics false-positives.
+_GPAI_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(gpai|general[\s\-_]?purpose(\s+ai)?)\b", re.I),
+    re.compile(r"\b(foundation|frontier|base)\s+(model|llm|ai)\b", re.I),
+    re.compile(r"\b(large\s+language\s+model|llms?)\b", re.I),
+    re.compile(r"\b(text|code|image)?\s*generation\s+(model|service)\b", re.I),
+)
+
+# Systemic-risk GPAI per Art. 51 — 10^25 FLOPs training compute is the
+# Commission's de-facto threshold; "systemic risk" / "frontier" wording also
+# bumps a basic GPAI verdict to the systemic sub-tier.
+_GPAI_SYSTEMIC_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b10\s*\^?\s*25\s*flops?\b", re.I),
+    re.compile(r"\b(systemic[\s\-]risk|systemic\s+risk)\b", re.I),
+    re.compile(r"\bfrontier\s+(model|llm|ai)\b", re.I),
 )
 
 
@@ -237,6 +276,28 @@ def classify(
             article_5_matches=art5_hits,
             confidence=1.0,
         )
+
+    # GPAI detection before Annex III so frontier LLMs surface as GPAI rather
+    # than a Biometrics false-positive when their description happens to mention
+    # "voice" or "face". Two sub-tiers per Chapter V — Article 51 systemic-risk
+    # threshold (10^25 FLOPs / EU Commission designation).
+    gpai_systemic = any(p.search(text_for_rules) for p in _GPAI_SYSTEMIC_PATTERNS)
+    gpai_basic = any(p.search(text_for_rules) for p in _GPAI_PATTERNS)
+    if gpai_systemic or gpai_basic:
+        tier_g: RiskTier = "general_purpose_systemic" if gpai_systemic else "general_purpose"
+        rationale = (
+            "Matches systemic-risk GPAI thresholds (Art. 51) — Articles 53–55 apply."
+            if gpai_systemic
+            else "Matches general-purpose AI model patterns — Articles 53–54 apply."
+        )
+        return RiskVerdict(
+            tier=tier_g,
+            rationale=rationale,
+            annex_iii_matches=[],
+            article_5_matches=[],
+            confidence=0.95,
+        )
+
     if annex_hits:
         # Limited-risk transparency duties only attach to chatbots/deepfakes; high-risk
         # Annex III hits dominate over limited-risk hints.

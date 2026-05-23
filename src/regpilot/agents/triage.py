@@ -85,6 +85,17 @@ _OBLIGATION_KEYWORDS: dict[str, str] = {
     "minimal_risk": (
         "Article 95 codes of conduct voluntary obligations general applicability"
     ),
+    "general_purpose": (
+        "Article 53 GPAI provider obligations technical documentation training summary copyright; "
+        "Article 54 cooperation AI Office authorised representative"
+    ),
+    "general_purpose_systemic": (
+        "Article 51 systemic risk classification GPAI model; "
+        "Article 53 GPAI provider obligations technical documentation training summary; "
+        "Article 54 cooperation AI Office; "
+        "Article 55 systemic risk obligations model evaluation adversarial testing "
+        "serious incident reporting cybersecurity protection"
+    ),
     "unknown": "EU AI Act applicability and general obligations",
 }
 
@@ -121,6 +132,19 @@ _TIER_SUBQUERIES: dict[str, tuple[str, ...]] = {
     "minimal_risk": (
         "Article 95 voluntary codes of conduct",
     ),
+    "general_purpose": (
+        "Article 53 GPAI provider obligations technical documentation",
+        "Article 53 training data summary copyright policy",
+        "Article 54 cooperation AI Office authorised representative",
+    ),
+    "general_purpose_systemic": (
+        "Article 51 systemic risk classification 10^25 FLOPs threshold",
+        "Article 53 GPAI provider obligations technical documentation Annex XI",
+        "Article 53 training data summary copyright policy",
+        "Article 54 cooperation AI Office",
+        "Article 55 systemic risk model evaluation adversarial testing",
+        "Article 55 serious incident reporting AI Office cybersecurity",
+    ),
 }
 
 
@@ -131,6 +155,8 @@ _TIER_PRIORITY_ARTICLES: dict[str, tuple[str, ...]] = {
     "prohibited": ("5", "113"),
     "limited_risk": ("50",),
     "minimal_risk": ("95",),
+    "general_purpose": ("53", "54"),
+    "general_purpose_systemic": ("51", "53", "54", "55"),
     "unknown": (),
 }
 
@@ -164,5 +190,7 @@ def route_by_tier(state: RegPilotState) -> str:
         "high_risk": "rag_retrieval",
         "limited_risk": "rag_retrieval",
         "minimal_risk": "rag_retrieval",
+        "general_purpose": "rag_retrieval",
+        "general_purpose_systemic": "rag_retrieval",
         "unknown": "rag_retrieval",
     }.get(tier, "rag_retrieval")
