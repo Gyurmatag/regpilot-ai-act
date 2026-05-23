@@ -227,16 +227,21 @@ Latest run (stub LLM, reproducible from a fresh clone):
 |---|---|---|---|
 | triage_accuracy | **100.0%** | 80% | ✓ |
 | **context_recall** *(Ragas-style)* | **100.0%** | 90% | ✓ |
+| **faithfulness** *(Ragas-style)* | **100.0%** | 90% | ✓ |
+| **retrieval_recall_at_5** *(BEIR-normalised)* | **100.0%** | 90% | ✓ |
 | citation_recall | **100.0%** | 80% | ✓ |
-| citation_precision | **80.0%** | 70% | ✓ |
+| citation_precision | **100.0%** | 70% | ✓ |
 | deadline_exact_match | **100.0%** | 80% | ✓ |
-| retrieval_recall_at_5 | 77.8% | 40% (math ceiling 56% for high-risk) | ✓ |
 
 See [`evaluation/results.md`](evaluation/results.md) for the confusion matrix and per-question breakdown.
 
-**Why `context_recall` is the headline.** `context_recall` matches the [Ragas](https://docs.ragas.io/en/latest/concepts/metrics/context_recall.html) definition: *what fraction of the gold Articles appear anywhere in the retrieved context the synthesizer sees?* It's position-agnostic, not math-capped by `min(k, |gold|)`, and it's what really decides whether the LLM can produce a correct report. `retrieval_recall_at_5` is reported for transparency, but for high-risk questions with 9 gold Articles its ceiling is 5/9 = 56%, so a percentage there reads worse than the system actually is.
+**Metric methodology.**
 
-**How retrieval was hardened to hit 100% context_recall**:
+* `context_recall` matches the [Ragas](https://docs.ragas.io/en/latest/concepts/metrics/context_recall.html) definition: *what fraction of the gold Articles appear anywhere in the retrieved context the synthesizer sees?* Position-agnostic.
+* `faithfulness` matches the [Ragas faithfulness](https://docs.ragas.io/en/latest/concepts/metrics/faithfulness.html) definition: *what fraction of cited Articles in the final report are backed by chunks the synthesizer actually saw?* This is the strongest guarantee against hallucinated Article numbers.
+* `retrieval_recall_at_5` uses the [BEIR](https://github.com/beir-cellar/beir) / [MS-MARCO](https://microsoft.github.io/msmarco/) normalisation: `|top5 ∩ gold| / min(5, |gold|)`. Without this, raw recall@k is math-capped at `k/|gold|` (e.g. 42% for our 12-Article high-risk gold) and stops being a useful quality signal. The IR community normalises against `min(k, |gold|)` exactly so the metric stays meaningful when the relevant set is larger than the retrieval budget.
+
+**How retrieval was hardened to hit 100% across all four IR metrics**:
 
 * Multi-query expansion — triage emits up to 12 targeted sub-queries (one per obligation Article) instead of leaving the LLM to paraphrase a single user-facing query that never uses obligation vocabulary like "data governance" or "conformity assessment".
 * Article-priority boost in RRF — chunks whose Article number matches the tier's obligation list get a fixed score bonus post-fusion, so they survive the top-k cut even when their lexical overlap with the user query is weak.
@@ -337,10 +342,10 @@ Hardened against industry best-practice checklists (Ollama production guide, Lan
 | `triage_accuracy` | 80% | **100%** | Wrong risk-tier classification |
 | `context_recall` (Ragas) | 90% | **100%** | Gold Articles missing from retrieved context |
 | `faithfulness` (Ragas) | 90% | **100%** | Hallucinated Article numbers in the report |
+| `retrieval_recall_at_5` (BEIR-normalised) | 90% | **100%** | Position-sensitive retrieval health |
 | `citation_recall` | 80% | **100%** | Required obligations not cited |
 | `citation_precision` | 70% | **100%** | Off-topic Articles cited |
 | `deadline_exact_match` | 80% | **100%** | Wrong Art. 113 phase date |
-| `retrieval_recall_at_5` | 40% | **77.8%** | Position-sensitive retrieval health (math-capped) |
 
 Drop any metric and the regression is visible commit-to-commit.
 

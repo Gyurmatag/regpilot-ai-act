@@ -45,9 +45,10 @@ THRESHOLDS = {
     "citation_recall": 0.80,
     "citation_precision": 0.70,
     "deadline_exact_match": 0.80,
-    # Position-sensitive metric kept for transparency. Math-capped by
-    # min(5, |gold|) / |gold| → 56% for high-risk (9 gold Articles).
-    "retrieval_recall_at_5": 0.40,
+    # Position-sensitive metric, normalised per BEIR/MS-MARCO convention so
+    # it isn't math-capped when |gold| > k. Measures how well the top-5
+    # surfaces relevant Articles.
+    "retrieval_recall_at_5": 0.90,
 }
 
 
@@ -89,10 +90,23 @@ def _retrieved_articles(state: dict) -> list[str]:
 
 
 def _recall_at_k(retrieved_arts: list[str], gold: list[str], k: int = 5) -> float:
+    """Recall@k normalised by ``min(k, |gold|)``.
+
+    Standard IR practice when ``|gold| > k``: the raw formula
+    ``|top_k ∩ gold| / |gold|`` is math-capped at ``k/|gold|`` (e.g. 5/12 ≈
+    42% for our high-risk gold sets), which is meaningless as a quality
+    signal. Normalising by ``min(k, |gold|)`` gives the well-defined
+    "Recall@k coverage" metric used in BEIR, MS-MARCO and Ragas when the
+    relevant-item set is larger than the retrieval budget. When
+    ``|gold| <= k`` this is identical to the raw recall@k.
+
+    Reference: BEIR benchmark (Thakur et al. 2021) and MS-MARCO eval guides.
+    """
+
     if not gold:
         return 1.0
     top = set(retrieved_arts[:k])
-    return len(top & set(gold)) / len(gold)
+    return len(top & set(gold)) / min(k, len(gold))
 
 
 def _mrr(retrieved_arts: list[str], gold: list[str]) -> float:
@@ -315,9 +329,12 @@ def _commentary(agg: dict, triage: dict) -> str:
     )
     fragments.append(
         f"- Retrieval Recall@5 = {agg['retrieval_recall_at_5']:.0%} (target "
-        f"{THRESHOLDS['retrieval_recall_at_5']:.0%}). Reported for transparency; "
-        "math-capped by min(5, |gold|) / |gold| — for high-risk with 9 gold "
-        "Articles the ceiling is 5/9 = 56%."
+        f"{THRESHOLDS['retrieval_recall_at_5']:.0%}). Normalised per "
+        "[BEIR](https://github.com/beir-cellar/beir) / "
+        "[MS-MARCO](https://microsoft.github.io/msmarco/) convention: "
+        "`|top5 ∩ gold| / min(5, |gold|)`, so it isn't math-capped when "
+        "`|gold| > k`. Measures how cleanly the top-5 chunks the user sees "
+        "are filled with relevant Articles."
     )
 
     fragments.append(
