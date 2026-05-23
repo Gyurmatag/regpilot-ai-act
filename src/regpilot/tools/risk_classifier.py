@@ -54,6 +54,13 @@ def _rule_scan(text: str) -> tuple[list[str], list[str]]:
     for pattern, code in _COMBO_PATTERNS:
         if pattern.search(low) and code not in art5_hits:
             art5_hits.append(code)
+
+    # Verb-form patterns for the Annex III biometric category — users describe
+    # what their system *does* ("analyses emotions", "detects faces") rather
+    # than the canonical noun phrase ("emotion recognition").
+    for pattern, area in _ANNEX_COMBO_PATTERNS:
+        if pattern.search(low) and area not in annex_hits:
+            annex_hits.append(area)
     return annex_hits, art5_hits
 
 
@@ -88,6 +95,50 @@ _COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
             re.I | re.S,
         ),
         "5(1)(e)",
+    ),
+)
+
+
+# Annex III combo patterns — verb-form biometric / emotion / face detection
+# wording variants that the literal keyword scan misses (users describe what
+# their system *does*, not the canonical regulatory noun phrase). Trailing
+# ``\w*`` on the noun matches plurals (``emotions``, ``faces``, ``identifies``).
+_ANNEX_COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # "analyses / detects / recognises emotions/mood/sentiment"
+    (
+        re.compile(
+            r"\b(analy[sz]\w*|detect\w*|recogni[sz]\w*|monitor\w*|track\w*|infer\w*|classif\w*)\b"
+            r".{0,40}\b(emotion|mood|sentiment|affect)\w*",
+            re.I | re.S,
+        ),
+        "Biometrics",
+    ),
+    # "detects / recognises faces/iris/gait" + plurals
+    (
+        re.compile(
+            r"\b(analy[sz]\w*|detect\w*|recogni[sz]\w*|identif\w*|match\w*)\b"
+            r".{0,40}\b(face|facial|iris|fingerprint|gait|voice\s+id)\w*",
+            re.I | re.S,
+        ),
+        "Biometrics",
+    ),
+    # "recognises individuals/people by their (gait|walking|voice|face)"
+    (
+        re.compile(
+            r"\b(recogni[sz]\w*|identif\w*)\b.{0,40}\b(individual|person|people|visitor|customer|employee)\w*"
+            r".{0,40}\b(walking|gait|face|facial|voice|biometric)\w*",
+            re.I | re.S,
+        ),
+        "Biometrics",
+    ),
+    # CCTV / surveillance camera + biometric / emotion / face context
+    (
+        re.compile(
+            r"\b(cctv|surveillance\s+camera|video\s+feed|video\s+surveillance|security\s+camera)\b"
+            r".{0,80}\b(emotion|mood|face|facial|identif|recogni|biometric)\w*",
+            re.I | re.S,
+        ),
+        "Biometrics",
     ),
 )
 

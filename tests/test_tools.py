@@ -50,6 +50,30 @@ def test_risk_classifier_returns_evidence_for_high_risk() -> None:
     assert any("Education" in m or "education" in m.lower() for m in v.annex_iii_matches)
 
 
+@pytest.mark.parametrize(
+    "description",
+    [
+        # Verb-form variants that don't use the canonical "emotion recognition" noun.
+        "AI that analyses customer emotions in real-time CCTV",
+        "Customer-experience AI that analyses customer emotions during phone support",
+        "An AI that detects employee mood from voice tone during sales calls",
+        # Verb-form face / biometric variants — plurals were the original bug.
+        "Video surveillance system that detects faces of visitors entering our building",
+        "Security system that recognises individuals by their walking pattern",
+        "Phone unlock feature using face detection on consumer devices",
+    ],
+)
+def test_risk_classifier_catches_biometric_verb_forms(description: str) -> None:
+    """Regression: an earlier classifier only matched the noun phrase
+    "emotion recognition" / "face recognition" and missed verb-form
+    descriptions like "analyses emotions" or "detects faces" — exactly how
+    real users describe their systems. These must now hit Annex III Biometrics."""
+
+    v = classify({"system_purpose": description, "domain": "", "notes": ""})
+    assert v.tier == "high_risk", f"{description!r} → {v.tier!r}, expected high_risk"
+    assert any("Biometrics" in m for m in v.annex_iii_matches)
+
+
 # --------------------------------------------------------------------------- #
 # deadline_calculator
 # --------------------------------------------------------------------------- #
