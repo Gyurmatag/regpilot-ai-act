@@ -12,6 +12,17 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 - Optional Langfuse tracing hook (env-gated by `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`; no-op if missing).
 - GPAI test question (`q16`) covering Articles 53/54/55 with the `2025-08-02` GPAI governance application date.
 - `CHANGELOG.md`, `SECURITY.md`, `CODEOWNERS`, `Makefile` for one-line common ops.
+- **Two new risk tiers**: `general_purpose` and `general_purpose_systemic` — Chapter V of the AI Act now has first-class representation in the classifier output and the UI tier badge. Frontier LLMs no longer mis-label as "Minimal risk".
+- **Verb-form biometric / emotion / face detection patterns** in the rule classifier (`_ANNEX_COMBO_PATTERNS`) — "analyses customer emotions in CCTV", "detects faces of visitors", "recognises individuals by their walking pattern" all now correctly route to Annex III Biometrics (high-risk) instead of falling through to `minimal_risk`.
+- **Art 5(1)(c) social-scoring combo patterns** — verb-form paraphrases like "scores citizens by behaviour" or "rates residents based on trustworthiness" now correctly classify as `prohibited` even without the canonical "social scoring" phrase.
+- **Systemic-risk flag** on `compute_deadlines(..., systemic_risk=True)` — basic GPAI now correctly omits Art. 55, which only applies to systemic-risk models per Art. 51.
+- **16 new parametrised regression tests** covering biometric verb forms, social-scoring paraphrases, and GPAI sub-tier detection.
+
+### Fixed
+- Edge-case stress test exposed three classification gaps; all fixed and locked with regression tests:
+  - Frontier LLM descriptions silently fell through to `unknown` because the classifier vocabulary lacked GPAI tiers.
+  - Social-scoring descriptions in public-sector RFP language ("scores citizens by behaviour") classified as `high_risk` instead of `prohibited`.
+  - Biometric descriptions using verb forms ("detects faces", "analyses emotions") were missed by the noun-only keyword scan.
 
 ## [0.4.0] — 2026-05-23 — Production hardening
 
