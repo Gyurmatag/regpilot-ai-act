@@ -59,9 +59,11 @@ from regpilot.agents.synthesizer import compliance_synthesizer
 from regpilot.agents.triage import risk_triage, route_by_tier
 from regpilot.agents.validator import route_after_validator, validator
 from regpilot.config import settings
+from regpilot.observability import configure_logging, trace_node
 from regpilot.rag.subgraph import build_rag_subgraph
 from regpilot.state import RegPilotState, TraceEvent
 
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -213,13 +215,13 @@ def build_main_graph(rag_subgraph: Any | None = None):
 
     g = StateGraph(RegPilotState)
 
-    g.add_node("intake_classifier", intake_classifier)
-    g.add_node("risk_triage", risk_triage)
-    g.add_node("rag_retrieval", _make_rag_node(rag_subgraph))
-    g.add_node("obligation_mapper", obligation_mapper)
-    g.add_node("compliance_synthesizer", compliance_synthesizer)
-    g.add_node("validator", validator)
-    g.add_node("prohibited_path", prohibited_path)
+    g.add_node("intake_classifier", trace_node("intake_classifier")(intake_classifier))
+    g.add_node("risk_triage", trace_node("risk_triage")(risk_triage))
+    g.add_node("rag_retrieval", trace_node("rag_retrieval")(_make_rag_node(rag_subgraph)))
+    g.add_node("obligation_mapper", trace_node("obligation_mapper")(obligation_mapper))
+    g.add_node("compliance_synthesizer", trace_node("compliance_synthesizer")(compliance_synthesizer))
+    g.add_node("validator", trace_node("validator")(validator))
+    g.add_node("prohibited_path", trace_node("prohibited_path")(prohibited_path))
 
     g.add_edge(START, "intake_classifier")
     g.add_edge("intake_classifier", "risk_triage")

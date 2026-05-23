@@ -13,3 +13,5 @@
 {"id": "q13", "description": "A spam filter that classifies inbound corporate email into spam vs not-spam.", "expected_tier": "minimal_risk", "expected_articles": ["95"], "expected_deadline": "2026-08-02"}
 {"id": "q14", "description": "A movie-recommendation engine for our internal streaming platform.", "expected_tier": "minimal_risk", "expected_articles": ["95"], "expected_deadline": "2026-08-02"}
 {"id": "q15", "description": "An AI-assisted spreadsheet add-in that suggests formulas based on cell content.", "expected_tier": "minimal_risk", "expected_articles": ["95"], "expected_deadline": "2026-08-02"}
+{"id": "q16", "description": "A 7B-parameter general-purpose generative AI foundation model that we provide as a marketing-copy assistant for downstream deployers.", "expected_tier": "limited_risk", "expected_articles": ["53", "54", "55"], "expected_deadline": "2025-08-02"}
+

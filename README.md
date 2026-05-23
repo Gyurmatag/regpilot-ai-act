@@ -38,7 +38,8 @@ docker compose up --build
 6. [Load test](#6-load-test)
 7. [Tests & CI](#7-tests--ci)
 8. [Production deployment](#8-production-deployment)
-9. [Limitations & next steps](#9-limitations--next-steps)
+9. [Repository governance](#9-repository-governance)
+10. [Limitations & next steps](#10-limitations--next-steps)
 
 ---
 
@@ -207,9 +208,11 @@ streamlit run src/regpilot/ui/app.py
 ### Run the eval + load test
 
 ```bash
-python scripts/evaluate.py          # writes evaluation/results.md
-python scripts/loadtest.py --n 100  # writes evaluation/loadtest_results.md
-pytest -q                           # 27 tests, ~3 s
+make eval                  # writes evaluation/results.md
+make loadtest              # writes evaluation/loadtest_results.md
+make test                  # 42 tests, ~2 s
+make ci                    # lint + type + test in one shot
+make help                  # show every available target
 ```
 
 ---
@@ -223,14 +226,16 @@ pytest -q                           # 27 tests, ~3 s
 
 Latest run (stub LLM, reproducible from a fresh clone):
 
+Latest run (stub LLM, 16-question gold set, includes the GPAI scenario):
+
 | Metric | Value | Threshold | Pass |
 |---|---|---|---|
 | triage_accuracy | **100.0%** | 80% | ✓ |
-| **context_recall** *(Ragas-style)* | **100.0%** | 90% | ✓ |
-| **faithfulness** *(Ragas-style)* | **100.0%** | 90% | ✓ |
-| **retrieval_recall_at_5** *(BEIR-normalised)* | **100.0%** | 90% | ✓ |
+| **context_recall** *(Ragas-style)* | **93.8%** | 90% | ✓ |
+| **faithfulness** *(Ragas-style)* | **94.6%** | 90% | ✓ |
+| **retrieval_recall_at_5** *(BEIR-normalised)* | **93.8%** | 90% | ✓ |
 | citation_recall | **100.0%** | 80% | ✓ |
-| citation_precision | **100.0%** | 70% | ✓ |
+| citation_precision | **96.4%** | 70% | ✓ |
 | deadline_exact_match | **100.0%** | 80% | ✓ |
 
 See [`evaluation/results.md`](evaluation/results.md) for the confusion matrix and per-question breakdown.
@@ -294,12 +299,14 @@ See [`evaluation/results.md`](evaluation/results.md) for the confusion matrix an
 
 ## 7. Tests & CI
 
-`pytest -q` runs **33 tests in ~1.5 s** with **76% line coverage**:
+`make test` runs **42 tests in ~2 s** with **73% line coverage**:
 
 * `tests/test_tools.py` — risk classifier across all four tiers, deadline calculator phase math, citation validator pass/fail cases.
 * `tests/test_chunker.py` — article-aware splitting, duplicate-id disambiguation, size fallback.
 * `tests/test_rag.py` — dense + sparse + hybrid retrieval, full RAG subgraph end-to-end.
-* `tests/test_graph.py` — main workflow per tier, prohibited short-circuit, validator-loop bounds, trace completeness.
+* `tests/test_graph.py` — main workflow per tier, prohibited short-circuit (with pre-loaded evidence), validator-loop bounds, trace completeness.
+* `tests/test_gpai.py` — General-Purpose AI tier: Art. 53/54/55 deadline math, systemic-risk obligations, end-to-end report covers GPAI Articles.
+* `tests/test_observability.py` — `trace_node` exception capture into `error_count`/`last_error`, structured JSON log formatter, Langfuse env-gating.
 
 GitHub Actions [`ci.yml`](.github/workflows/ci.yml) runs `ruff check` + `mypy src` + `pytest --cov=regpilot --cov-fail-under=70` on every push and PR to `main`, all with `REGPILOT_LLM=stub` so the suite stays offline and fast. The whole pipeline finishes in under a minute.
 
@@ -330,8 +337,9 @@ Hardened against industry best-practice checklists (Ollama production guide, Lan
 ### App-level health & observability
 
 - **Container `HEALTHCHECK`** hits Streamlit's `/_stcore/health` every 10s; orchestrators (compose, Kubernetes) restart unhealthy pods automatically.
-- **Structured logging** keys: `thread_id`, node name, LLM mode (`heuristic` / `llm` / `template`), per-call latency — easy to ship to Loki / Grafana Cloud.
-- **Optional Langfuse hook** — set `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` to stream traces.
+- **`trace_node` decorator** wraps every LangGraph node — catches exceptions into `state["error_count"]` + `state["last_error"]` (the graph keeps flowing instead of 500-ing) and emits structured log records with per-node latency. See [`src/regpilot/observability.py`](src/regpilot/observability.py).
+- **Structured JSON logs** (`REGPILOT_LOG_JSON=true`) — one record per line with `thread_id`, `node`, `latency_ms`. Ready to ship to Loki / Datadog / OpenSearch.
+- **Optional Langfuse hook** (`configure_langfuse()`) — env-gated on `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`; no-op if the package isn't installed.
 
 ### Quality measurement (Ragas-style)
 
@@ -355,7 +363,16 @@ Drop any metric and the regression is visible commit-to-commit.
 - **Horizontal**: behind an L7 load balancer, replace `SqliteSaver` with `PostgresSaver` for shared checkpoint storage. Ollama itself is stateless per request — scale Ollama pods independently.
 - **Cold-start budget**: first request after rebuild pays the BM25 index build (~50 ms) + Ollama model warm-up (~2-3 s on CPU). The compose `app` healthcheck has a 30s `start_period` to ride out the warm-up.
 
-## 9. Limitations & next steps
+## 9. Repository governance
+
+- **License**: MIT — [`LICENSE`](LICENSE).
+- **Change history**: [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog format, semver).
+- **Security policy**: [`SECURITY.md`](SECURITY.md) — disclosure process + hardening notes.
+- **Code owners**: [`.github/CODEOWNERS`](.github/CODEOWNERS).
+- **CI**: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — runs `ruff` + `mypy` + `pytest --cov-fail-under=70` on every push and PR to `main`.
+- **Common ops**: [`Makefile`](Makefile) — `make install`, `make ci`, `make eval`, `make loadtest`, `make run-docker`, etc.
+
+## 10. Limitations & next steps
 
 * **Not legal advice.** RegPilot is a first-pass triage tool. The Act's grey
   areas (purpose-built carve-outs, GPAI tier definition, sectoral overlaps with
