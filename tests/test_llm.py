@@ -322,7 +322,12 @@ def test_stub_generate_structured_falls_back_for_unknown_schema() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_ollama_generate_structured_sends_format_json() -> None:
+def test_ollama_generate_structured_sends_full_json_schema() -> None:
+    """Ollama 0.5+ supports JSON-schema-constrained generation. The client
+    must send the full schema as the ``format`` parameter (not the legacy
+    ``"json"`` string) so the model is grammar-constrained to a
+    schema-conformant output."""
+
     from regpilot.agents.intake import IntakeSchema
 
     client = OllamaClient(base_url="http://test", chat_model="x", embed_model="y")
@@ -339,7 +344,10 @@ def test_ollama_generate_structured_sends_format_json() -> None:
     result = client.generate_structured("describe", IntakeSchema)
 
     _, payload = client._client.requests[0]
-    assert payload["format"] == "json"  # native Ollama JSON mode
+    fmt = payload["format"]
+    assert isinstance(fmt, dict), f"expected dict (JSON schema), got {type(fmt).__name__}"
+    assert fmt["type"] == "object"
+    assert "system_purpose" in fmt["properties"]
     assert result.system_purpose == "A CV screening AI."
 
 

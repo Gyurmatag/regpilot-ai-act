@@ -9,12 +9,13 @@ services:
       - "11434:11434"
     environment:
       # See docs.ollama.com/faq — these env vars are the production-tuning
-      # knobs. Defaults are demo-grade; the values below match a CPU-only
-      # 8-core box with one 3B-parameter chat model + one embedding model.
-      OLLAMA_NUM_PARALLEL: "4"          # KV-cache slots per loaded model
-      OLLAMA_MAX_QUEUE: "128"           # fail fast (503) rather than queue forever
+      # knobs. NUM_PARALLEL=1 + single-threaded embedding makes Ollama
+      # CPU-deterministic so eval scores reproduce across fresh container
+      # boots (the trade-off vs. NUM_PARALLEL=4 is throughput, not quality).
+      OLLAMA_NUM_PARALLEL: "1"          # serialise inference for determinism
+      OLLAMA_MAX_QUEUE: "256"           # plenty of headroom since calls are serial
       OLLAMA_MAX_LOADED_MODELS: "2"     # chat + embed simultaneously
-      OLLAMA_KEEP_ALIVE: "10m"          # keep models warm between requests
+      OLLAMA_KEEP_ALIVE: "30m"          # keep models warm across the eval run
       OLLAMA_FLASH_ATTENTION: "1"       # ~10-20% throughput gain when supported
       OLLAMA_DEBUG: "0"
       OLLAMA_HOST: "0.0.0.0:11434"
@@ -67,10 +68,13 @@ services:
       # Ollama is always wired in — for the default local backend and as the
       # embedding provider when REGPILOT_LLM=anthropic.
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_TIMEOUT_S: "60"  # LLM-primary mode runs longer single calls
+      # 240 s timeout per call so synthesizer / rerank under load never falls
+      # back to the template path mid-eval (template fallback would jitter the
+      # scores across runs). Trade speed for determinism on the CPU eval path.
+      OLLAMA_TIMEOUT_S: "240"
       REGPILOT_CHAT_MODEL: qwen2.5:3b-instruct
       REGPILOT_EMBED_MODEL: nomic-embed-text
-      REGPILOT_EMBED_PARALLELISM: "4"   # match OLLAMA_NUM_PARALLEL above
+      REGPILOT_EMBED_PARALLELISM: "1"   # serialise embedding for CPU-determinism
       REGPILOT_CHROMA_DIR: /data/chroma
       REGPILOT_DATA_DIR: /data/raw
       # LLM-primary mode (Option C). The LLM drives intake, classification,

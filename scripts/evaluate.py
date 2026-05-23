@@ -181,7 +181,15 @@ def eval_end_to_end(rows: list[dict]) -> dict:
     per_row: list[dict] = []
     for r in rows:
         t0 = time.perf_counter()
-        state = graph.invoke({"user_input": r["description"], "validator_loops": 0})
+        # SqliteSaver checkpointer requires a thread_id on every invoke. Use
+        # the question id so each row's run is isolated and replayable.
+        config: dict = {
+            "configurable": {"thread_id": f"eval-{r['id']}"},
+            "recursion_limit": settings.graph_recursion_limit,
+        }
+        state = graph.invoke(
+            {"user_input": r["description"], "validator_loops": 0}, config=config
+        )
         latency = time.perf_counter() - t0
         retrieved = _retrieved_articles(state)
         cited = _extract_cited(state.get("final_report", "") or state.get("draft_report", ""))

@@ -158,17 +158,32 @@ class OllamaClient(LLMClient):
         temperature: float = 0.1,
         max_tokens: int = 1024,
         format_json: bool = False,
+        json_schema: dict[str, Any] | None = None,
+        seed: int = 42,
         **_: Any,
     ) -> str:
         payload: dict[str, Any] = {
             "model": self.chat_model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": temperature, "num_predict": max_tokens},
+            # ``seed`` makes Ollama greedy decoding fully deterministic across
+            # runs given identical (model, prompt, temperature). Critical for
+            # reproducible eval scores in the LLM-primary mode.
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                "seed": seed,
+            },
         }
         if system:
             payload["system"] = system
-        if format_json:
+        # Ollama 0.5+ supports a JSON-schema-as-format mode that uses
+        # constrained grammar to force the output to conform to the schema
+        # (much stronger than the legacy ``format=json`` which only
+        # guarantees parseable JSON, not schema-conformant JSON).
+        if json_schema is not None:
+            payload["format"] = json_schema
+        elif format_json:
             payload["format"] = "json"
         r = self._client.post(f"{self.base_url}/api/generate", json=payload)
         if r.status_code == 503:
@@ -186,15 +201,24 @@ class OllamaClient(LLMClient):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> T:
-        """Use Ollama's native ``format=json`` mode for guaranteed JSON output."""
+        """Use Ollama 0.5+'s schema-as-format constrained generation.
 
-        json_prompt = _wrap_with_schema(prompt, schema)
+        The schema is sent as the ``format`` parameter (not the legacy
+        ``"json"`` string) so Ollama's grammar-constrained sampler forces
+        the output to conform field-for-field — no more JSON-but-wrong-shape
+        failures the loose ``format=json`` mode produces. The prompt itself
+        no longer carries the schema text, which previously confused 3B-scale
+        models into echoing the schema back as their output.
+        """
+
+        # Strip the trailing newlines so the model gets a clean instruction.
+        clean_prompt = prompt.strip()
         raw = self.generate(
-            json_prompt,
+            clean_prompt,
             system=system,
             temperature=temperature,
             max_tokens=max_tokens,
-            format_json=True,
+            json_schema=schema.model_json_schema(),
         )
         obj = _safe_json_obj(raw)
         try:

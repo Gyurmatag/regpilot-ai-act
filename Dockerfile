@@ -42,6 +42,7 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 COPY scripts/ ./scripts/
+COPY evaluation/ ./evaluation/
 COPY src/regpilot/ui/app.py ./src/regpilot/ui/app.py
 COPY docker/entrypoint-ingest.sh /usr/local/bin/entrypoint-ingest.sh
 RUN chmod +x /usr/local/bin/entrypoint-ingest.sh
