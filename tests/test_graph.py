@@ -60,3 +60,20 @@ def test_trace_records_all_main_nodes() -> None:
     assert "obligation_mapper" in nodes
     assert "compliance_synthesizer" in nodes
     assert "validator" in nodes
+
+
+def test_invoke_config_supplies_thread_id_for_checkpointer() -> None:
+    """Regression: a clean docker install enables ``REGPILOT_CHECKPOINTER=sqlite``,
+    and LangGraph's checkpointer raises ValueError if ``thread_id`` is missing
+    from the invoke config. ``run()`` and ``_invoke_config()`` must always
+    populate it so the Streamlit UI doesn't 500 on first query."""
+
+    from regpilot.graph import _invoke_config
+
+    cfg = _invoke_config()
+    assert "configurable" in cfg
+    assert cfg["configurable"].get("thread_id"), "thread_id must always be set"
+
+    # And run() must work without the caller specifying thread_id.
+    out = run("A spam filter.")
+    assert out.get("risk_tier") == "minimal_risk"

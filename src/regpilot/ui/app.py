@@ -21,7 +21,7 @@ import time
 import streamlit as st
 
 from regpilot.config import settings
-from regpilot.graph import build_main_graph
+from regpilot.graph import _invoke_config, build_main_graph
 from regpilot.llm import OllamaClient, get_llm
 from regpilot.rag.vectorstore import VectorStore
 from regpilot.state import RegPilotState
@@ -254,6 +254,11 @@ st.markdown(
 
 if "history" not in st.session_state:
     st.session_state.history = []  # list[dict(user, state)]
+if "thread_id" not in st.session_state:
+    # Stable per-Streamlit-session thread id — keys the LangGraph checkpointer
+    # so a crashed container resumes the same user's runs, and correlates logs.
+    import uuid
+    st.session_state.thread_id = f"ui-{uuid.uuid4().hex[:12]}"
 
 
 # --------------------------------------------------------------------------- #
@@ -425,8 +430,15 @@ with col_chat:
             st.markdown(prompt)
         with st.chat_message("assistant"):
             with st.status("Running RegPilot agent…", expanded=False) as status:
+                # Per-turn thread_id so each query has its own checkpoint stream
+                # (resume on crash mid-turn, but no cross-turn state bleed).
+                turn_idx = len(st.session_state.history) + 1
+                turn_thread = f"{st.session_state.thread_id}-t{turn_idx}"
                 t0 = time.perf_counter()
-                state = _graph().invoke({"user_input": prompt, "validator_loops": 0})
+                state = _graph().invoke(
+                    {"user_input": prompt, "validator_loops": 0, "error_count": 0},
+                    config=_invoke_config(turn_thread),
+                )
                 elapsed = time.perf_counter() - t0
                 label = (
                     "Done" if elapsed < 0.5

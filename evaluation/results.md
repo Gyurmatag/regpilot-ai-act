@@ -28,21 +28,21 @@ Confusion matrix (rows = gold, columns = predicted):
 | deadline_exact_match | 100.00% | 80% | yes |
 | retrieval_recall_at_5 | 93.75% | 90% | yes |
 | MRR | 0.938 | — | — |
-| latency p50 (s) | 0.01 | — | — |
-| latency p95 (s) | 0.07 | — | — |
+| latency p50 (s) | 0.02 | — | — |
+| latency p95 (s) | 0.13 | — | — |
 
 ## Per-question breakdown
 
 | id | gold | pred | ctx recall | R@5 | MRR | cite prec | cite recall | deadline | lat s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| q01 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.13 |
-| q02 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
-| q03 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
-| q04 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.07 |
+| q01 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.14 |
+| q02 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
+| q03 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
+| q04 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.13 |
 | q05 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.03 |
 | q06 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.03 |
 | q07 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.03 |
-| q08 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.03 |
+| q08 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.04 |
 | q09 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.03 |
 | q10 | limited_risk | limited_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
 | q11 | limited_risk | limited_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
