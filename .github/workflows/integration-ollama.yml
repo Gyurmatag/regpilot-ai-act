@@ -1,0 +1,73 @@
+name: Integration — live Ollama
+
+# Manual trigger only. This workflow boots the full docker stack inside the
+# GitHub runner, runs the eval against the real Ollama LLM, and uploads the
+# results markdown. It is not on push because the pull + ingest + eval cycle
+# is ~30 minutes per run and would burn the entire CI minute budget.
+#
+# Local equivalent: `make integration-ollama`.
+on:
+  workflow_dispatch:
+    inputs:
+      testset:
+        description: "Path to testset JSONL inside the repo (default: evaluation/testset.jsonl)"
+        required: false
+        default: "evaluation/testset.jsonl"
+      suffix:
+        description: "Suffix on the results filename (e.g. 'extra' → results_ollama_extra.md)"
+        required: false
+        default: ""
+
+jobs:
+  ollama-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space (Ollama pull + chunked PDF needs ~5 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Boot docker stack
+        run: |
+          docker compose up --build -d
+          echo "Waiting for ingest to finish (730 chunks × ~1s each)…"
+          # Ingest service exits 0 when finished; poll its container state.
+          for i in {1..40}; do
+            state=$(docker inspect -f '{{.State.Status}}' regpilot-ingest 2>/dev/null || echo "missing")
+            exitcode=$(docker inspect -f '{{.State.ExitCode}}' regpilot-ingest 2>/dev/null || echo "?")
+            echo "[$i] ingest state=$state exit=$exitcode"
+            [ "$state" = "exited" ] && [ "$exitcode" = "0" ] && break
+            sleep 30
+          done
+          docker ps -a
+          docker compose logs --tail 5 ingest
+
+      - name: Run live eval
+        run: |
+          docker exec regpilot-app python scripts/evaluate.py \
+            --testset "${{ inputs.testset }}" \
+            --suffix "${{ inputs.suffix }}" \
+            --no-fail | tee live-eval.log
+
+      - name: Extract score summary
+        run: |
+          echo "## Live Ollama eval summary" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "^  (triage_accuracy|context_recall|faithfulness|retrieval_recall|citation_recall|citation_precision|deadline_exact_match|latency p50)" live-eval.log >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload results markdown
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-eval-results
+          path: evaluation/results_ollama*.md
+
+      - name: Teardown
+        if: always()
+        run: docker compose down -v --remove-orphans

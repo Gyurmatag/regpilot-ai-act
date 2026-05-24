@@ -8,8 +8,8 @@ venv/
 data/
 __pycache__/
 *.pyc
-evaluation/results.md
-evaluation/loadtest_results.md
+evaluation/results_stub*.md
+evaluation/loadtest_results_*.md
 .env
 .env.local
 *.log
