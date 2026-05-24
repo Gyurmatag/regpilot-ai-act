@@ -2,14 +2,19 @@
 
 Bridges the retrieved Articles + the structured intake into a concrete list of
 obligations with concrete dates (via ``deadline_calculator_tool``).
+
+The GPAI detection used to be duplicated here as a fallback "safety net" —
+removed in the Option C cleanup pass because ``risk_triage`` now runs the
+authoritative GPAI bright-line rule upstream and emits the
+``general_purpose`` / ``general_purpose_systemic`` tier directly. Keeping two
+copies of the same regex in two places was a maintenance trap, not a safety
+net.
 """
 
 from __future__ import annotations
 
 import logging
-import re
-from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 
 from regpilot.state import RegPilotState, TraceEvent
 from regpilot.tools.deadline_calculator import (
@@ -23,25 +28,13 @@ from regpilot.tools.deadline_calculator import (
 logger = logging.getLogger(__name__)
 
 
-# Lexical hints that a system is a General-Purpose AI model under Chapter V
-# of the AI Act (Articles 51-55). Verb-form / common-shorthand vocabulary —
-# users rarely type the literal phrase "general-purpose AI".
-_GPAI_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(gpai|general[\s\-_]?purpose(\s+ai)?)\b", re.I),
-    re.compile(r"\b(foundation|frontier)\s+(model|llm|ai)\b", re.I),
-    re.compile(r"\b(large\s+language\s+model|llm)s?\b", re.I),
-    re.compile(r"\b10\s*\^?\s*25\s*flops?\b", re.I),
-    re.compile(r"\bsystemic[\s\-]risk\s+(model|ai|llm)\b", re.I),
-)
-
-
 def obligation_mapper(state: RegPilotState) -> RegPilotState:
     tier = state.get("risk_tier", "minimal_risk")
     structured = state.get("structured") or {}
     retrieved = state.get("retrieved") or []
     role = cast(UserRole, structured.get("user_role", "provider") or "provider")
 
-    system_type = _tier_to_system_type(tier, structured)
+    system_type = _tier_to_system_type(tier)
     systemic_risk = tier == "general_purpose_systemic"
     deadlines = compute_deadlines(system_type, role, systemic_risk=systemic_risk)
 
@@ -87,18 +80,11 @@ def obligation_mapper(state: RegPilotState) -> RegPilotState:
     return updates
 
 
-def _tier_to_system_type(tier: str, structured: Mapping[str, Any]) -> SystemType:
-    # Authoritative GPAI tier wins immediately (risk classifier did the detection).
-    if tier in ("general_purpose", "general_purpose_systemic"):
-        return "general_purpose_ai"
+def _tier_to_system_type(tier: str) -> SystemType:
+    """Map the classifier's tier vocabulary onto the deadline calculator's
+    system-type vocabulary. Pure 1:1 lookup."""
 
-    # Legacy fallback for cases where the classifier didn't flag GPAI but the
-    # intake corpus clearly describes one (kept as a safety net).
-    corpus = " ".join(
-        str(structured.get(k, "") or "")
-        for k in ("system_purpose", "deployment_context", "domain", "notes")
-    )
-    if any(pat.search(corpus) for pat in _GPAI_PATTERNS):
+    if tier in ("general_purpose", "general_purpose_systemic"):
         return "general_purpose_ai"
 
     return {

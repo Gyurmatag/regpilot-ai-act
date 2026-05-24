@@ -716,10 +716,22 @@ class StubClient(LLMClient):
 
 
 def _extract_after(text: str, marker: str) -> str:
+    """Return the text immediately after ``marker``, stopping at the next
+    blank line or all-caps section header. Used by the StubClient to isolate
+    the user description from the surrounding prompt boilerplate (decision
+    rules, tier definitions etc. that mention literal GPAI / Art. 5 tokens)."""
+
     idx = text.find(marker)
     if idx < 0:
         return ""
-    return text[idx + len(marker):].strip()
+    tail = text[idx + len(marker):].lstrip()
+    # Stop at the next blank line (separates description from "Decision rules:" /
+    # "Return strict JSON" etc.) so we don't accidentally match keywords in the
+    # prompt's instructional boilerplate.
+    sep = tail.find("\n\n")
+    if sep > 0:
+        tail = tail[:sep]
+    return tail.strip()
 
 
 # --------------------------------------------------------------------------- #

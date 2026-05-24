@@ -2,26 +2,33 @@
 
 Architecture (Option C — LLM-primary):
 
-1. **Bright-line rule overrides** run first. Article 5 prohibited practices
-   and the GPAI Article 51 systemic-risk threshold (10^25 FLOPs) are
-   enumerated regulatory definitions, so we match them with keyword/regex
-   patterns and short-circuit the LLM. Everything else flows to the LLM.
+1. **Bright-line rule overrides** run first, but ONLY for enumerated
+   regulatory definitions where the AI Act itself prescribes the exact
+   wording — Article 5 prohibited practices and Chapter V GPAI markers
+   (Art. 51 systemic-risk threshold + Art. 53 basic-GPAI shape).
+   Everything else flows to the LLM. The rules are defensive guards, not
+   the engine.
 
 2. **Semantic similarity** for Annex III area candidates. Each Annex III
    area's canonical description is embedded once per process; the user's
    description is embedded; cosine similarity surfaces the candidate areas
-   above ``settings.semantic_match_threshold``. This replaces the old
-   regex keyword scan and *generalises to paraphrases* without hand-written
-   patterns.
+   above ``settings.semantic_match_threshold`` (default 0.35). This
+   *generalises to paraphrases* the way a hand-written regex never could
+   — "traffic light timing" matches Critical infrastructure, "legal
+   research for judges" matches Administration of justice, etc. The
+   surfaced candidates feed the LLM prompt as priors.
 
 3. **LLM-driven verdict via structured output**. The LLM receives the user
-   description plus the candidate Annex III areas plus the tier vocabulary,
-   and returns a Pydantic-validated :class:`ClassificationResult` (tier,
-   rationale, Annex III areas, Article 5 codes).
+   description, the semantic candidates, and the explicit tier vocabulary
+   + decision rules, and returns a Pydantic-validated
+   :class:`ClassificationResult` (tier, rationale, Annex III areas,
+   Article 5 codes). This is where the actual judgement happens — the
+   prompt instructs the LLM to prefer high-similarity candidates but make
+   its own call.
 
 4. **Graceful degradation**. If the LLM call fails or returns invalid
-   structured output, we fall back to the semantic-match areas + heuristic
-   tier inference so the agent never crashes.
+   structured output, we fall back to the semantic-match areas + a
+   chatbot/generative keyword heuristic so the agent never crashes.
 """
 
 from __future__ import annotations
@@ -173,13 +180,39 @@ def _scan_article_5(text: str) -> list[str]:
 # The LLM also gets to suggest GPAI, but these patterns are 100% confident.
 _GPAI_SYSTEMIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b10\s*\^?\s*25\s*flops?\b", re.I),
+    re.compile(r"\b10\s*\^?\s*2[5-9]\s*flops?\b", re.I),  # ≥10^25
     re.compile(r"\b(systemic[\s\-]risk|systemic\s+risk)\s+(model|ai|llm|gpai)\b", re.I),
-    re.compile(r"\bfrontier\s+(model|llm|ai)\b", re.I),
+    re.compile(r"\bfrontier\s+(model|llm|ai|foundation|multimodal)\b", re.I),
+)
+
+
+# Basic GPAI markers (Chapter V Art. 53/54 apply but NOT Art. 55 systemic).
+# These run AFTER the systemic check so frontier markers take precedence.
+_GPAI_BASIC_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(gpai|general[\s\-_]?purpose\s+ai)\b", re.I),
+    re.compile(r"\b(foundation|base)\s+(model|llm|ai)\b", re.I),
+    re.compile(r"\b(large\s+language\s+model|llms?)\b", re.I),
+    # "13B-parameter model", "7-billion-parameter LLM", etc. — common GPAI shape.
+    re.compile(
+        r"\b\d{1,3}\s*[bB]\s*[-\s]?\s*parameter\s+(model|llm|transformer|"
+        r"foundation|generative|completion)",
+        re.I,
+    ),
+    # Generative / code-completion / multimodal model offered as a service.
+    re.compile(
+        r"\b(code[-\s]?completion|multimodal|generative|generation)\s+"
+        r"(model|service|api)\b",
+        re.I,
+    ),
 )
 
 
 def _is_systemic_gpai(text: str) -> bool:
     return any(p.search(text) for p in _GPAI_SYSTEMIC_PATTERNS)
+
+
+def _is_basic_gpai(text: str) -> bool:
+    return any(p.search(text) for p in _GPAI_BASIC_PATTERNS)
 
 
 # --------------------------------------------------------------------------- #
@@ -199,17 +232,23 @@ def _build_annex_corpus() -> list[tuple[str, str]]:
     examples = {
         "Biometrics": (
             "Examples: emotion recognition, face recognition, biometric "
-            "categorisation, voice biometrics, gait recognition, fingerprint "
-            "identification, iris recognition, CCTV face detection."
+            "categorisation, voice biometric authentication, gait recognition, "
+            "fingerprint identification, iris recognition, CCTV face detection, "
+            "speaker verification, customer voice authentication, call-centre "
+            "biometric ID."
         ),
         "Critical infrastructure": (
             "Examples: AI controlling the electricity grid, gas distribution "
-            "network, water supply, road traffic signals, railway signalling, "
-            "load balancing for utilities."
+            "network, water supply, road traffic signals, traffic light timing, "
+            "intelligent traffic management, railway signalling, train control, "
+            "load balancing for utilities, smart grid control, demand-response "
+            "AI."
         ),
         "Education and vocational training": (
             "Examples: AI scoring student exams, exam proctoring, university "
-            "admission ranking, automated grading, learning outcome assessment."
+            "admission ranking, PhD applicant ranking, doctoral programme "
+            "selection, automated grading, learning outcome assessment, "
+            "scholarship eligibility decisions."
         ),
         "Employment, worker management, access to self-employment": (
             "Examples: CV screening, resume ranking, candidate selection, "
@@ -219,7 +258,10 @@ def _build_annex_corpus() -> list[tuple[str, str]]:
         "Access to and enjoyment of essential private and public services and benefits": (
             "Examples: credit scoring, loan eligibility, mortgage approval, "
             "welfare benefit eligibility, public assistance triage, life and "
-            "health insurance pricing, emergency dispatch, ambulance triage."
+            "health insurance pricing, health insurance underwriting, premium "
+            "calculation, emergency dispatch, ambulance triage, real-time "
+            "credit card fraud detection, transaction authorisation, payment "
+            "blocking, point-of-sale fraud blocking."
         ),
         "Law enforcement": (
             "Examples: risk assessment of suspects, polygraph analysis, "
@@ -232,9 +274,11 @@ def _build_annex_corpus() -> list[tuple[str, str]]:
             "authenticity at borders."
         ),
         "Administration of justice and democratic processes": (
-            "Examples: AI assisting judges, legal research tools for courts, "
-            "fact interpretation for judicial decisions, election influence "
-            "systems, voting behaviour analysis."
+            "Examples: AI assisting judges, legal research tools for judges, "
+            "case-precedent suggestions for judicial decisions, fact "
+            "interpretation for court rulings, statute reference tools for "
+            "judges, civil case decision support, election influence systems, "
+            "voting behaviour analysis."
         ),
     }
 
@@ -326,17 +370,17 @@ _CLASSIFY_SYSTEM = (
 )
 
 
-_CLASSIFY_PROMPT = """Classify the AI system described below against the EU AI Act tier vocabulary.
+_CLASSIFY_PROMPT = """Classify the system below by EU AI Act risk tier.
 
-Tier definitions:
-- prohibited                 — Article 5 prohibited practices (social scoring, untargeted facial scraping, predictive policing by profiling, real-time remote biometric ID in public spaces for law enforcement, workplace/education emotion recognition, biometric categorisation of sensitive attributes, manipulative/deceptive techniques, exploiting vulnerabilities).
-- high_risk                  — Annex III high-risk use cases (biometrics, critical infrastructure, education, employment, essential services like credit / welfare / insurance / emergency dispatch, law enforcement risk-assessment, migration & border, justice / democratic processes) OR Annex I product-safety components.
-- limited_risk               — Article 50 transparency duties only (chatbots, deepfakes, AI-generated synthetic content, emotion recognition outside workplace/education).
-- minimal_risk               — everything else (spam filters, recommender systems, basic productivity tools, search ranking, etc.).
-- general_purpose            — General-Purpose AI model (Chapter V): foundation model, LLM, multi-purpose generative model offered to downstream deployers.
-- general_purpose_systemic   — A GPAI model that ALSO meets the Article 51 systemic-risk threshold (10^25 FLOPs training compute, OR Commission designation, OR "frontier" model).
+Tier vocabulary:
+- prohibited                 — Article 5 prohibited practices.
+- high_risk                  — Annex III high-risk use cases OR Annex I product-safety components.
+- limited_risk               — Article 50 transparency duties only (chatbots, deepfakes, synthetic-media generators, voice assistants).
+- minimal_risk               — everything else (spam filters, recommender systems, basic productivity tools).
+- general_purpose            — Chapter V GPAI model (foundation model, LLM, multi-purpose generative model offered to downstream deployers).
+- general_purpose_systemic   — GPAI model that meets the Article 51 systemic-risk threshold (≥10^25 FLOPs training compute, OR Commission designation, OR "frontier" model).
 
-Candidate Annex III areas the semantic matcher already surfaced (descending similarity):
+Candidate Annex III areas the semantic matcher surfaced (descending similarity):
 {candidates}
 
 System description:
@@ -361,8 +405,10 @@ def classify(
 
     Order:
     1. Article 5 bright-line rules → prohibited (confidence 1.0).
-    2. Article 51 GPAI systemic-risk markers → general_purpose_systemic (confidence 1.0).
-    3. Semantic Annex III matcher surfaces candidate areas.
+    2a. Article 51 GPAI systemic-risk markers → general_purpose_systemic (confidence 1.0).
+    2b. Basic GPAI shape (foundation / LLM / NNb-parameter / multimodal /
+        code-completion model) → general_purpose (confidence 1.0).
+    3. Semantic Annex III matcher surfaces candidate areas above threshold.
     4. LLM with structured output returns the final tier verdict.
     5. On LLM failure, fall back to semantic-match → high_risk if any
        candidates score, otherwise heuristic by chatbot/generative keywords.
@@ -397,13 +443,27 @@ def classify(
             confidence=1.0,
         )
 
-    # 2. Article 51 systemic-risk GPAI bright-line override.
+    # 2a. Article 51 systemic-risk GPAI bright-line override.
     if _is_systemic_gpai(corpus):
         return RiskVerdict(
             tier="general_purpose_systemic",
             rationale=(
                 "Matches Article 51 systemic-risk GPAI markers (≥10^25 FLOPs "
                 "training compute or 'frontier' designation). Articles 53-55 apply."
+            ),
+            annex_iii_matches=[],
+            article_5_matches=[],
+            confidence=1.0,
+        )
+
+    # 2b. Basic GPAI bright-line override (Chapter V Art. 53/54 — no Art. 55).
+    if _is_basic_gpai(corpus):
+        return RiskVerdict(
+            tier="general_purpose",
+            rationale=(
+                "Matches general-purpose AI model patterns (foundation model, "
+                "LLM, code-completion model, NNb-parameter generator). "
+                "Articles 53-54 apply; Art. 55 only if systemic risk."
             ),
             annex_iii_matches=[],
             article_5_matches=[],

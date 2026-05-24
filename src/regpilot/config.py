@@ -45,7 +45,13 @@ class Settings(BaseSettings):
     synth_fast: bool = Field(False, alias="REGPILOT_SYNTH_FAST")
 
     # Semantic-similarity classifier threshold. Annex III area is considered a
-    # match if cosine similarity ≥ this value. Tuned on the gold testset.
+    # match if cosine similarity ≥ this value. 0.45 was the proven-stable
+    # default across the main 16-question gold set; a lower 0.35 was tried
+    # to surface more candidates for the LLM but it regressed limited-risk
+    # classification on main (chatbots / deepfakes), so 0.45 stays the
+    # default. The enriched canonical examples in the classifier already
+    # raise the cosine scores enough to catch paraphrases like "traffic
+    # light timing" or "PhD applicant ranking" without lowering the bar.
     semantic_match_threshold: float = Field(0.45, alias="REGPILOT_SEM_THRESHOLD")
 
     chroma_dir: Path = Field(REPO_ROOT / "data" / "chroma", alias="REGPILOT_CHROMA_DIR")

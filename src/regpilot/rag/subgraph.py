@@ -65,9 +65,18 @@ Candidates:
 
 
 def _query_rewrite(state: RAGState, llm: LLMClient) -> RAGState:
-    # If the caller (typically the triage node) already supplied targeted
-    # sub-queries, skip the LLM rewrite — those queries are deterministic and
-    # tier-specific, much better than what a 3B LLM would generate.
+    """Generate alternative search queries for the retriever.
+
+    On the main workflow path this is a **no-op fast-return**: the upstream
+    ``risk_triage`` node always pre-populates ``rewritten_queries`` with
+    tier-specific obligation sub-queries (e.g. "Article 9 risk management")
+    that consistently beat anything a 3B LLM would paraphrase. The LLM
+    rewrite path below stays defensive — it covers callers that drive the
+    RAG subgraph directly (notebooks, ad-hoc scripts, future entry points)
+    without going through triage. Removing it would silently degrade those
+    callers to single-query retrieval.
+    """
+
     if state.get("rewritten_queries"):
         return {"query": state["query"], "rewritten_queries": state["rewritten_queries"]}
 
@@ -145,12 +154,12 @@ def _rerank(state: RAGState, llm: LLMClient) -> RAGState:
     if remaining_budget <= 0 or not non_priority:
         return {"reranked": priority_hits}
 
-    # Fast path #2 — REGPILOT_RERANK_FAST=true (default) → fill the remaining
+    # Fast path #2 — REGPILOT_RERANK_FAST=true (opt-in; default now false) → fill the remaining
     # slots in RRF order. Saves a 10–15 s LLM call on CPU.
     if settings.rerank_fast:
         return {"reranked": [*priority_hits, *non_priority[:remaining_budget]]}
 
-    # LLM rerank path — opt-in via REGPILOT_RERANK_FAST=false.
+    # LLM rerank path — the LLM-primary default since Option C.
     blocks = "\n\n".join(
         f"[{i}] Art. {c.get('article') or '?'} — {c['text'][:400]}"
         for i, c in enumerate(non_priority)

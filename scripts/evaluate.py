@@ -30,7 +30,15 @@ from regpilot.graph import build_main_graph
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTSET = ROOT / "evaluation" / "testset.jsonl"
-RESULTS = ROOT / "evaluation" / "results.md"
+
+
+def _results_path(suffix: str = "") -> Path:
+    """Backend-specific results filename so stub / Ollama / hosted runs don't
+    overwrite each other. ``suffix`` distinguishes alternate testsets
+    (e.g. ``extra`` → ``results_<backend>_extra.md``)."""
+
+    extra = f"_{suffix}" if suffix else ""
+    return ROOT / "evaluation" / f"results_{settings.llm_backend}{extra}.md"
 
 THRESHOLDS = {
     "triage_accuracy": 0.80,
@@ -57,7 +65,8 @@ THRESHOLDS = {
 # --------------------------------------------------------------------------- #
 
 
-def _load_testset(path: Path = TESTSET) -> list[dict]:
+def _load_testset(path: Path | None = None) -> list[dict]:
+    path = path or TESTSET
     rows: list[dict] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -256,7 +265,8 @@ def _pct(xs: list[float], p: int) -> float:
 # --------------------------------------------------------------------------- #
 
 
-def write_report(triage: dict, e2e: dict, out_path: Path = RESULTS) -> None:
+def write_report(triage: dict, e2e: dict, out_path: Path | None = None) -> None:
+    out_path = out_path or _results_path()
     agg = e2e["agg"]
     cm = triage["confusion"]
     tiers = ["prohibited", "high_risk", "limited_risk", "minimal_risk"]
@@ -267,6 +277,17 @@ def write_report(triage: dict, e2e: dict, out_path: Path = RESULTS) -> None:
         f"Backend: `{settings.llm_backend}` — Chat model: `{settings.chat_model}` — "
         f"Embed model: `{settings.embed_model}` — Testset: {agg['n']} questions.\n"
     )
+    if settings.is_stub:
+        lines.append(
+            "> ⚠️ **Stub-backend caveat.** The stub LLM uses hash-based pseudo-"
+            "embeddings, so the semantic-similarity Annex III matcher (Option C) "
+            "can't surface relevant areas, and end-to-end retrieval metrics are "
+            "degraded by design. The stub run still validates classifier wiring, "
+            "graph assembly, and the deterministic regulatory layer (deadline "
+            "calculator, Article 5 bright-line rules) — useful as a smoke test, "
+            "not as a quality benchmark. For real metrics see "
+            "[`results_ollama.md`](results_ollama.md).\n"
+        )
 
     lines.append("## Single-node eval — `risk_triage`\n")
     lines.append(f"**Triage accuracy: {triage['accuracy']:.2%}** "
@@ -371,10 +392,21 @@ def _commentary(agg: dict, triage: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="RegPilot functional eval")
     parser.add_argument("--no-fail", action="store_true", help="never exit non-zero on threshold miss")
+    parser.add_argument(
+        "--testset",
+        type=Path,
+        default=TESTSET,
+        help="path to a testset JSONL file (default: evaluation/testset.jsonl)",
+    )
+    parser.add_argument(
+        "--suffix",
+        default="",
+        help="extra suffix on the results filename (e.g. 'extra' → results_<backend>_extra.md)",
+    )
     args = parser.parse_args()
 
-    rows = _load_testset()
-    print(f"Loaded {len(rows)} gold questions from {TESTSET}.")
+    rows = _load_testset(args.testset)
+    print(f"Loaded {len(rows)} gold questions from {args.testset}.")
 
     print("Running single-node eval on risk_triage…")
     triage = eval_triage_only(rows)
@@ -399,9 +431,10 @@ def main() -> int:
         print(f"  {k}: {agg[k]:.2%}{flag}")
     print(f"  latency p50/p95: {agg['latency_p50']:.2f}s / {agg['latency_p95']:.2f}s")
 
-    RESULTS.parent.mkdir(exist_ok=True)
-    write_report(triage, e2e)
-    print(f"Wrote {RESULTS}")
+    out_path = _results_path(args.suffix)
+    out_path.parent.mkdir(exist_ok=True)
+    write_report(triage, e2e, out_path)
+    print(f"Wrote {out_path}")
 
     misses = {k: agg[k] for k, t in THRESHOLDS.items() if agg[k] < t}
     if misses and not args.no_fail:

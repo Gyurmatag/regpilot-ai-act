@@ -9,8 +9,9 @@ Fires N concurrent queries through the full RegPilot graph using ``asyncio``
   but kept dependency-free)
 * RSS memory + CPU% snapshot at peak
 
-Then writes ``evaluation/loadtest_results.md`` with a bottleneck call-out and
-two concrete optimisation recommendations.
+Then writes ``evaluation/loadtest_results_<backend>.md`` (e.g.
+``loadtest_results_stub.md``) with a bottleneck call-out and two concrete
+optimisation recommendations.
 """
 
 from __future__ import annotations
@@ -33,7 +34,12 @@ from regpilot.config import settings
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTSET = ROOT / "evaluation" / "testset.jsonl"
-RESULTS = ROOT / "evaluation" / "loadtest_results.md"
+
+
+def _results_path() -> Path:
+    """Backend-specific filename so stub / Ollama runs don't overwrite each other."""
+
+    return ROOT / "evaluation" / f"loadtest_results_{settings.llm_backend}.md"
 
 
 # --------------------------------------------------------------------------- #
@@ -235,7 +241,8 @@ def _bottleneck() -> str:
     return rows[0]["node"]
 
 
-def write_report(summary: dict, out_path: Path = RESULTS) -> None:
+def write_report(summary: dict, out_path: Path | None = None) -> None:
+    out_path = out_path or _results_path()
     nodes = _node_table()
     total = sum(r["total_s"] for r in nodes) or 1.0
     bottleneck = _bottleneck()
@@ -246,6 +253,20 @@ def write_report(summary: dict, out_path: Path = RESULTS) -> None:
         f"Backend: `{settings.llm_backend}` (chat=`{settings.chat_model}`, "
         f"embed=`{settings.embed_model}`).\n"
     )
+    if settings.is_stub:
+        lines.append(
+            "> ⚠️ **Stub-backend caveat.** Latency below is the *performance "
+            "ceiling* of the LangGraph wiring + retrieval pipeline; it doesn't "
+            "include the cost of real LLM calls. For real-world latency under "
+            "Ollama see [`results_ollama.md`](results_ollama.md) which reports "
+            "~140 s p50 / ~180 s p95 per query on CPU with `NUM_PARALLEL=1` "
+            "(the determinism setting). Throughput-tuned deployments — "
+            "`NUM_PARALLEL=4`, `EMBED_PARALLELISM=4`, fast-paths on — sustain "
+            "~5–7 s per query on the same hardware. Real loadtest at scale is "
+            "not run in CI because each query is ≥ 5 s and 100 queries would "
+            "consume the CI minute budget. Run locally with "
+            "`make loadtest-ollama` after a manual `docker compose up --build`.\n"
+        )
     lines.append(
         f"- Total requests: **{summary['n']}**\n"
         f"- Concurrency (semaphore): **{summary['concurrency']}**\n"
@@ -331,7 +352,7 @@ def main() -> int:
     )
 
     write_report(summary)
-    print(f"Wrote {RESULTS}")
+    print(f"Wrote {_results_path()}")
     return 0
 
 
