@@ -171,6 +171,8 @@ regpilot-ai-act/
 ├── src/regpilot/
 │   ├── config.py, state.py, graph.py, observability.py
 │   ├── schemas.py                      # central Pydantic schemas the LLM fills in
+│   ├── cli.py                          # regpilot-ingest / regpilot-eval / regpilot-loadtest entry points
+│   ├── loadtest.py                     # async harness + per-node instrumentation + report writer
 │   ├── llm/                            # provider abstraction (Ollama / OpenAI / Anthropic / stub)
 │   │   ├── base.py, helpers.py, factory.py
 │   │   └── ollama.py, openai_client.py, anthropic_client.py, stub.py
@@ -185,8 +187,8 @@ regpilot-ai-act/
 │   ├── evaluation/                     # metrics + runner + report + CLI
 │   │   └── {metrics,runner,report,cli,__init__}.py
 │   └── ui/app.py                       # Streamlit
-├── scripts/{ingest,evaluate,loadtest}.py  # thin shims around the packages
-├── tests/                              # pytest — 194 tests, ~16 s, 93% coverage
+├── scripts/{ingest,evaluate,loadtest}.py  # thin shims around regpilot.cli
+├── tests/                              # pytest — 227 tests, ~16 s, 93% coverage
 ├── evaluation/
 │   ├── testset.jsonl                   # 16 main gold questions
 │   ├── testset_extra.jsonl             # 10 edge-case scenarios (set A)
@@ -244,7 +246,7 @@ streamlit run src/regpilot/ui/app.py
 Common operations live in the `Makefile`:
 
 ```bash
-make test                  # 194 tests, ~16 s
+make test                  # 227 tests, ~16 s
 make ci                    # lint + type + test in one shot
 make eval                  # stub eval against main testset
 make eval-extra            # stub eval against the 10 extra cases (A)
@@ -369,7 +371,7 @@ Same workload, three deployment shapes:
 
 | Mode | Per-query latency p50 | Throughput | Notes |
 |---|---|---|---|
-| Stub (CI / smoke test) | ~50 ms | ~40 req/s | Hash embeddings; tests the pipeline wiring only, not LLM quality |
+| Stub (CI / smoke test) | ~50–60 ms | 40–80 req/s | Hash embeddings; tests the pipeline wiring only, not LLM quality. Throughput is hardware-dependent — the live `loadtest_results_stub.md` is the canonical number for the host that ran it. |
 | Ollama + fast paths (`*_FAST=true`) | ~5–7 s | ~0.2 req/s | Template synthesizer, heuristic intake, parallel embeddings, RRF rerank |
 | Ollama + LLM-primary (current docker default) | ~140 s (p95 180 s) | ~0.007 req/s | All four nodes through the LLM; `NUM_PARALLEL=1` for determinism |
 | OpenAI / Anthropic | ~3–6 s | ~0.5 req/s | Same LLM-primary pipeline; hosted models 10–30× faster per call than CPU Ollama |
@@ -401,13 +403,15 @@ Two optimisations worth doing next:
 
 ## Tests and CI
 
-`make test` runs **194 tests in ~16 seconds** with **93% line coverage**
+`make test` runs **227 tests in ~16 seconds** with **93% line coverage**
 (CI gate at 90%):
 
 - `tests/test_tools.py` — risk classifier across every tier (bright-line +
-  verb-form biometric + social-scoring patterns), deadline calculator
-  phase math, citation validator pass/fail, Annex I product-safety
-  override.
+  verb-form biometric + social-scoring + real-time biometric law-enforcement
+  patterns), deadline calculator phase math, citation validator pass/fail,
+  Annex I product-safety override. Includes a regression block that drives
+  every UI "Try an example" button description through the stub classifier
+  so the showcase surface stays green on a fresh boot.
 - `tests/test_chunker.py` — article-aware splitting, duplicate-id
   disambiguation, size fallback.
 - `tests/test_rag.py` — dense + sparse + hybrid retrieval, full RAG
@@ -453,6 +457,11 @@ Two optimisations worth doing next:
 - `tests/test_llm_paths.py` — non-default LLM branches in
   `intake_classifier`, `compliance_synthesizer`, and the RAG subgraph
   rerank.
+- `tests/test_cli_and_loadtest.py` — installable console scripts
+  (`regpilot-ingest` / `regpilot-eval` / `regpilot-loadtest`), the
+  loadtest harness + per-node bottleneck identification + report writer,
+  and a regression guard confirming `[project.scripts]` resolves to real
+  callables.
 
 ### Why CI is stub-only
 

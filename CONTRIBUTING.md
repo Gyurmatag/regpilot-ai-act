@@ -51,12 +51,18 @@ src/regpilot/
 │   └── _synth_scaffold.py   deterministic report scaffold (constants + helpers)
 ├── evaluation/      metrics, runner, report, CLI for the functional eval
 ├── ui/              Streamlit app
+├── cli.py           regpilot-ingest / regpilot-eval / regpilot-loadtest console scripts
+├── loadtest.py      async harness + per-node instrumentation + report writer
 ├── observability.py trace_node + JSON logging + request-id context
 ├── schemas.py       central Pydantic schemas the LLM fills in
 ├── config.py        pydantic-settings — every env var lives here
 ├── state.py         the LangGraph TypedDict + RiskTier / UserRole literals
 └── graph.py         workflow assembly + run() entry point
 ```
+
+The `scripts/{ingest,evaluate,loadtest}.py` files are one-import shims that
+delegate to `regpilot.cli` so `python scripts/...` and the installed
+console-script binaries stay in lock-step.
 
 Test files mirror the source layout under `tests/`.
 
