@@ -96,6 +96,78 @@ def test_risk_classifier_catches_social_scoring_paraphrases(description: str) ->
 
 
 @pytest.mark.parametrize(
+    "description",
+    [
+        # Art 5(1)(h) — real-time remote biometric ID in public spaces by law enforcement.
+        # The literal keyword list ("real-time remote biometric", "live facial
+        # recognition police") missed every realistic phrasing of this; the
+        # combo patterns below have to catch all of them.
+        "A real-time facial recognition system used in train stations by police.",
+        "Police use real-time facial recognition cameras to identify people in metro stations.",
+        "Live face recognition deployed by law enforcement at airports.",
+        "Real-time biometric identification system installed in public squares for police surveillance.",
+        "Real-time facial recognition by the gendarmerie on public streets.",
+    ],
+)
+def test_risk_classifier_catches_realtime_biometric_law_enforcement(description: str) -> None:
+    """Regression: the showcase 'Police facial recognition' example fell through
+    to ``high_risk`` (Biometrics Annex III area) because the literal Art 5(1)(h)
+    keywords ("real-time remote biometric", "live facial recognition police")
+    don't match the canonical phrasing reviewers actually type. The combo
+    patterns added to ``bright_lines.py`` have to lift every variant in this
+    parametrize block back to ``prohibited``."""
+
+    v = classify({"system_purpose": description, "domain": "", "notes": ""})
+    assert v.tier == "prohibited", f"{description!r} → {v.tier!r}, expected prohibited"
+    assert "5(1)(h)" in v.article_5_matches
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        # Negative controls — must NOT trip Art 5(1)(h). These are
+        # private-context biometric authentication (high_risk via Annex III
+        # Biometrics, not prohibited) or non-real-time forensic analysis.
+        "Face recognition used to unlock employee laptops at our company.",
+        "Forensic image analysis tool that matches a still photo against a database after the fact.",
+    ],
+)
+def test_realtime_biometric_pattern_does_not_overreach(description: str) -> None:
+    v = classify({"system_purpose": description, "domain": "", "notes": ""})
+    assert v.tier != "prohibited", (
+        f"{description!r} should NOT be prohibited (no law-enforcement + real-time + public-space combo)"
+    )
+
+
+@pytest.mark.parametrize(
+    "description,expected_tier",
+    [
+        # The 7 showcase examples from ``src/regpilot/ui/app.py``. These
+        # have to classify correctly on the stub backend so the "Try an
+        # example" panel gives a first-time reviewer the documented
+        # behaviour, not a sub-par fallback. Each phrase is the literal
+        # string the sidebar button submits.
+        ("An automated CV screening AI that ranks applicants for tech roles in Hungary.", "high_risk"),
+        ("An AI used by police to predict, based on profiling, who will commit a crime.", "prohibited"),
+        ("A customer support chatbot on our retail website handling refunds and FAQs.", "limited_risk"),
+        ("An AI tool that grades student essays for a private high school.", "high_risk"),
+        ("A spam filter that classifies inbound corporate email.", "minimal_risk"),
+        ("A general-purpose generative AI assistant for marketing copy.", "general_purpose"),
+        ("A real-time facial recognition system used in train stations by police.", "prohibited"),
+    ],
+)
+def test_ui_showcase_examples_classify_correctly(description: str, expected_tier: str) -> None:
+    """Regression: every "Try an example" button in the Streamlit sidebar must
+    classify to its expected tier on the deterministic stub backend. The
+    sidebar is the demo surface for first-time reviewers, so a mis-classification
+    here is a credibility hit even when the README's stub-backend caveat
+    explains why the eval set degrades."""
+
+    v = classify({"system_purpose": description, "domain": "", "notes": ""})
+    assert v.tier == expected_tier, f"{description!r} → {v.tier!r}, expected {expected_tier!r}"
+
+
+@pytest.mark.parametrize(
     "description,expected_tier",
     [
         # GPAI sub-tier detection — frontier markers force systemic, others basic.

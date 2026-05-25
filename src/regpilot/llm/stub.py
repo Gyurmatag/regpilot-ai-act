@@ -43,6 +43,12 @@ _HIGH_RISK_HINTS = re.compile(
     r"\b(recruit\w*|hir(e|ing)|cv\s+screening|credit\s+scoring"
     r"|education|exam\s+proctor|law\s+enforcement|migration|critical\s+infrastructure"
     r"|medical\s+device|judicial"
+    # Education / Annex III paraphrases — kept in sync with ``_STUB_ANNEX_AREAS``
+    # so "AI tool that grades student essays at a high school" classifies as
+    # high_risk on the stub backend the same way it would under a real LLM
+    # (the real LLM picks this up via the Annex III semantic matcher, which
+    # the stub's hash embeddings can't do).
+    r"|grad(e|es|ed|ing)|student\w*|school|admission"
     # Biometric variants — the stub also has to recognise these so tests stay
     # deterministic without a real LLM.
     r"|emotion\w*|face\w*|facial|biometric\w*"

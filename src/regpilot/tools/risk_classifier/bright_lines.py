@@ -90,6 +90,38 @@ _ART5_COMBO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "5(1)(c)",
     ),
+    # 5(1)(h): real-time remote biometric identification in publicly accessible
+    # spaces for law enforcement. The literal keyword list ("real-time remote
+    # biometric", "live facial recognition police") misses the canonical
+    # paraphrase — "real-time facial recognition in train stations by police"
+    # — because the wording uses "facial recognition" without "remote" and
+    # "real-time" without "live". The pattern below captures the three
+    # semantic anchors the Act actually hinges on: liveness, biometric/face
+    # signal, and a law-enforcement actor. Public-place words are common but
+    # not required because "by police" already implies the law-enforcement
+    # context (vs. enterprise self-service face unlock, which is private).
+    (
+        re.compile(
+            r"\b(real[\s\-]?time|live)\b.{0,60}\b(facial|face|biometric)\b"
+            r".{0,40}\b(recognition|identification|matching|surveillance)\b"
+            r".{0,160}\b(police|law\s+enforcement|policing|gendarmerie|"
+            r"public\s+(security|safety)\s+authorit|border\s+(guard|police))\b",
+            re.I | re.S,
+        ),
+        "5(1)(h)",
+    ),
+    # 5(1)(h): same prohibition expressed actor-first ("police use real-time
+    # facial recognition"). Catches the natural English ordering reviewers
+    # are most likely to type.
+    (
+        re.compile(
+            r"\b(police|law\s+enforcement|policing|gendarmerie)\b.{0,120}"
+            r"\b(real[\s\-]?time|live)\b.{0,60}\b(facial|face|biometric)\b"
+            r".{0,40}\b(recognition|identification|matching|surveillance)\b",
+            re.I | re.S,
+        ),
+        "5(1)(h)",
+    ),
 )
 
 
