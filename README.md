@@ -219,10 +219,10 @@ docker compose up --build
 
 On first boot the Ollama container pulls the chat and embed models
 (~2.3 GB combined), then the ingest container downloads the EU AI Act
-PDF from `publications.europa.eu`, chunks it into ~840 article-aware
-chunks, and exits. The app container then starts the Streamlit UI on
-port 8501. Subsequent boots reuse the named volumes and are usually
-under a minute.
+PDF from `publications.europa.eu`, chunks it into 730 article-aware
+chunks (714 from the PDF + 16 structured Annex III / Article 5 records),
+and exits. The app container then starts the Streamlit UI on port 8501.
+Subsequent boots reuse the named volumes and are usually under a minute.
 
 For local development without Docker:
 
