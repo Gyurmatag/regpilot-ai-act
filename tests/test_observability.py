@@ -108,3 +108,95 @@ def test_configure_langfuse_is_noop_without_credentials(monkeypatch: pytest.Monk
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
     assert configure_langfuse() is None
+
+
+# --------------------------------------------------------------------------- #
+# Request-id correlation context
+# --------------------------------------------------------------------------- #
+
+
+def test_current_request_id_defaults_to_dash() -> None:
+    """Before any request_context is entered, the contextvar is '-'."""
+    from regpilot.observability import current_request_id
+
+    assert current_request_id() == "-"
+
+
+def test_set_request_id_returns_what_it_set() -> None:
+    from regpilot.observability import current_request_id, set_request_id
+
+    rid = set_request_id("explicit-123")
+    assert rid == "explicit-123"
+    assert current_request_id() == "explicit-123"
+    # Reset for hygiene.
+    set_request_id("-")
+
+
+def test_set_request_id_generates_uuid_when_omitted() -> None:
+    from regpilot.observability import set_request_id
+
+    rid = set_request_id()
+    assert isinstance(rid, str)
+    assert len(rid) == 12  # uuid4.hex[:12]
+    set_request_id("-")
+
+
+def test_request_context_scopes_and_restores() -> None:
+    """The context manager restores the previous value on exit."""
+    from regpilot.observability import current_request_id, request_context
+
+    assert current_request_id() == "-"
+    with request_context("outer"):
+        assert current_request_id() == "outer"
+        with request_context("inner"):
+            assert current_request_id() == "inner"
+        assert current_request_id() == "outer"
+    assert current_request_id() == "-"
+
+
+def test_json_formatter_always_emits_request_id() -> None:
+    """Every log record carries the request_id field, even when unset."""
+    from regpilot.observability import _JsonFormatter, _RequestIdFilter
+
+    fmt = _JsonFormatter()
+    flt = _RequestIdFilter()
+
+    record = logging.LogRecord(
+        name="regpilot.test", level=logging.INFO, pathname=__file__, lineno=1,
+        msg="agent step", args=(), exc_info=None,
+    )
+    flt.filter(record)
+    out = json.loads(fmt.format(record))
+
+    assert "request_id" in out
+    assert out["request_id"] == "-"
+
+
+def test_request_id_filter_attaches_current_context_value() -> None:
+    from regpilot.observability import _RequestIdFilter, request_context
+
+    flt = _RequestIdFilter()
+    record = logging.LogRecord(
+        name="regpilot.test", level=logging.INFO, pathname=__file__, lineno=1,
+        msg="step", args=(), exc_info=None,
+    )
+    with request_context("scoped-rid"):
+        flt.filter(record)
+    assert record.request_id == "scoped-rid"
+
+
+def test_run_sets_request_id_to_thread_id() -> None:
+    """``graph.run()`` plumbs the thread_id into the request-id contextvar so
+    log records produced inside the LangGraph call carry it automatically."""
+
+    from regpilot.graph import run
+    from regpilot.observability import current_request_id
+
+    # During the run, the contextvar holds the request id. After the run
+    # returns, the contextvar is restored to "-" (the default).
+    out = run("A spam filter for company email.", thread_id="rtest-1234")
+    assert out.get("risk_tier") in (
+        "minimal_risk", "limited_risk", "high_risk",
+        "prohibited", "general_purpose", "general_purpose_systemic",
+    )
+    assert current_request_id() == "-"

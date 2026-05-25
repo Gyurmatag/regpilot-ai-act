@@ -4,25 +4,25 @@ Backend: `stub` (chat=`qwen2.5:3b-instruct`, embed=`nomic-embed-text`).
 
 > ⚠️ **Stub-backend caveat.** Latency below is the *performance ceiling* of the LangGraph wiring + retrieval pipeline; it doesn't include the cost of real LLM calls. For real-world latency under Ollama see [`results_ollama.md`](results_ollama.md) which reports ~140 s p50 / ~180 s p95 per query on CPU with `NUM_PARALLEL=1` (the determinism setting). Throughput-tuned deployments — `NUM_PARALLEL=4`, `EMBED_PARALLELISM=4`, fast-paths on — sustain ~5–7 s per query on the same hardware. Real loadtest at scale is not run in CI because each query is ≥ 5 s and 100 queries would consume the CI minute budget. Run locally with `make loadtest-ollama` after a manual `docker compose up --build`.
 
-- Total requests: **20**
+- Total requests: **50**
 - Concurrency (semaphore): **4**
-- Wall-clock: **0.47 s**
-- Throughput: **42.67 req/s**
-- Latency (s): min 0.019 · **p50 0.047** · p95 0.255 · p99 0.328 · max 0.328 · mean 0.089
-- Peak RSS: **160 MB** — CPU% (process): **137%**
-- Tier distribution: `{'prohibited': 6, 'high_risk': 4, 'minimal_risk': 7, 'limited_risk': 2, 'general_purpose': 1}`
+- Wall-clock: **0.53 s**
+- Throughput: **94.92 req/s**
+- Latency (s): min 0.012 · **p50 0.025** · p95 0.117 · p99 0.184 · max 0.184 · mean 0.041
+- Peak RSS: **152 MB** — CPU% (process): **230%**
+- Tier distribution: `{'prohibited': 11, 'high_risk': 9, 'minimal_risk': 21, 'limited_risk': 6, 'general_purpose': 3}`
 
 ## Per-node breakdown
 
 | node | calls | mean (ms) | p95 (ms) | total (s) | share |
 | --- | --- | --- | --- | --- | --- |
-| rag_retrieval | 14 | 93.74 | 248.89 | 1.312 | 77.3% |
-| prohibited_path | 6 | 52.38 | 111.87 | 0.314 | 18.5% |
-| validator | 14 | 4.33 | 28.30 | 0.061 | 3.6% |
-| risk_triage | 20 | 0.36 | 0.59 | 0.007 | 0.4% |
-| compliance_synthesizer | 14 | 0.12 | 0.21 | 0.002 | 0.1% |
-| intake_classifier | 20 | 0.04 | 0.05 | 0.001 | 0.0% |
-| obligation_mapper | 14 | 0.02 | 0.04 | 0.000 | 0.0% |
+| rag_retrieval | 39 | 33.09 | 78.31 | 1.290 | 69.9% |
+| prohibited_path | 11 | 44.40 | 87.18 | 0.488 | 26.5% |
+| validator | 39 | 1.19 | 0.10 | 0.046 | 2.5% |
+| risk_triage | 50 | 0.30 | 0.43 | 0.015 | 0.8% |
+| compliance_synthesizer | 39 | 0.08 | 0.13 | 0.003 | 0.2% |
+| intake_classifier | 50 | 0.02 | 0.03 | 0.001 | 0.1% |
+| obligation_mapper | 39 | 0.02 | 0.08 | 0.001 | 0.0% |
 
 **Identified bottleneck:** `rag_retrieval` (largest share of node wall time, post warm-up).
 

@@ -59,7 +59,11 @@ from regpilot.agents.synthesizer import compliance_synthesizer
 from regpilot.agents.triage import risk_triage, route_by_tier
 from regpilot.agents.validator import route_after_validator, validator
 from regpilot.config import settings
-from regpilot.observability import configure_logging, trace_node
+from regpilot.observability import (
+    configure_logging,
+    request_context,
+    trace_node,
+)
 from regpilot.rag.subgraph import build_rag_subgraph
 from regpilot.state import RegPilotState, TraceEvent
 
@@ -275,10 +279,18 @@ def run(user_input: str, *, thread_id: str | None = None) -> RegPilotState:
 
     Pass an explicit ``thread_id`` (e.g. the Streamlit session id) to enable
     checkpoint replay; otherwise a fresh ad-hoc id is allocated per call.
+    The same id is set on the request-context so every log record produced
+    during this call carries it for trivial multi-request log triage.
     """
 
     graph = build_main_graph()
-    return graph.invoke(
-        {"user_input": user_input, "validator_loops": 0, "error_count": 0},
-        config=_invoke_config(thread_id),
-    )
+    # Bind the thread_id to the request-id contextvar so log records produced
+    # anywhere in the call (LLM client, retriever, agents, ...) automatically
+    # include it. Standard correlation-ID pattern, no manual extra={}.
+    config = _invoke_config(thread_id)
+    rid = config["configurable"]["thread_id"]
+    with request_context(rid):
+        return graph.invoke(
+            {"user_input": user_input, "validator_loops": 0, "error_count": 0},
+            config=config,
+        )

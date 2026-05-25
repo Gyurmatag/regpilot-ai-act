@@ -186,19 +186,25 @@ def eval_triage_only(rows: list[dict]) -> dict:
 
 
 def eval_end_to_end(rows: list[dict]) -> dict:
+    from regpilot.observability import request_context
+
     graph = build_main_graph()
     per_row: list[dict] = []
     for r in rows:
         t0 = time.perf_counter()
-        # SqliteSaver checkpointer requires a thread_id on every invoke. Use
-        # the question id so each row's run is isolated and replayable.
+        # SqliteSaver checkpointer requires a thread_id on every invoke.
+        # Use the question id so each row's run is isolated and replayable;
+        # bind it to the request-context so every log record emitted during
+        # this row's run carries it automatically.
+        rid = f"eval-{r['id']}"
         config: dict = {
-            "configurable": {"thread_id": f"eval-{r['id']}"},
+            "configurable": {"thread_id": rid},
             "recursion_limit": settings.graph_recursion_limit,
         }
-        state = graph.invoke(
-            {"user_input": r["description"], "validator_loops": 0}, config=config
-        )
+        with request_context(rid):
+            state = graph.invoke(
+                {"user_input": r["description"], "validator_loops": 0}, config=config
+            )
         latency = time.perf_counter() - t0
         retrieved = _retrieved_articles(state)
         cited = _extract_cited(state.get("final_report", "") or state.get("draft_report", ""))
@@ -336,50 +342,57 @@ def write_report(triage: dict, e2e: dict, out_path: Path | None = None) -> None:
 
 
 def _commentary(agg: dict, triage: dict) -> str:
+    """Render the post-eval commentary block in plain English.
+
+    Reads like a notes file, not a marketing one-pager: short sentences,
+    minimal bold, no buzzwords. Threshold-aware so the tone matches the
+    actual numbers (no "exceeds expectations" when we just barely cleared).
+    """
+
     fragments: list[str] = []
+
     if triage["accuracy"] >= THRESHOLDS["triage_accuracy"]:
         fragments.append(
-            f"- Triage accuracy ({triage['accuracy']:.0%}) clears the {THRESHOLDS['triage_accuracy']:.0%} bar. "
-            "The hybrid rule + LLM classifier handles all four tiers reliably; misses, "
-            "if any, cluster around limited- vs minimal-risk boundary."
+            f"- Triage accuracy ({triage['accuracy']:.0%}) clears the "
+            f"{THRESHOLDS['triage_accuracy']:.0%} threshold. Misses, when they "
+            "show up, tend to cluster around the limited / minimal-risk boundary."
         )
     else:
         fragments.append(
-            f"- Triage accuracy ({triage['accuracy']:.0%}) is below target — see the "
-            "confusion matrix to find which tier needs better rules or richer Annex examples."
+            f"- Triage accuracy ({triage['accuracy']:.0%}) is below the "
+            f"{THRESHOLDS['triage_accuracy']:.0%} threshold. The confusion "
+            "matrix above shows which tier is being confused with which."
         )
 
     fragments.append(
-        f"- **Context recall = {agg['context_recall']:.0%}** (target "
-        f"{THRESHOLDS['context_recall']:.0%}). This is the headline retrieval "
-        "metric, defined as in [Ragas](https://docs.ragas.io/en/latest/concepts/metrics/context_recall.html) "
-        "— how many gold Articles appear anywhere in the retrieved context the "
-        "synthesizer sees. Position-agnostic, not bounded by k."
+        f"- Context recall ({agg['context_recall']:.0%}, target "
+        f"{THRESHOLDS['context_recall']:.0%}) is the headline retrieval "
+        "number — Ragas definition: how many gold Articles appear anywhere "
+        "in the retrieved context, position-agnostic and not bounded by k. "
+        "See https://docs.ragas.io/en/latest/concepts/metrics/context_recall.html."
     )
     fragments.append(
-        f"- Retrieval Recall@5 = {agg['retrieval_recall_at_5']:.0%} (target "
-        f"{THRESHOLDS['retrieval_recall_at_5']:.0%}). Normalised per "
-        "[BEIR](https://github.com/beir-cellar/beir) / "
-        "[MS-MARCO](https://microsoft.github.io/msmarco/) convention: "
-        "`|top5 ∩ gold| / min(5, |gold|)`, so it isn't math-capped when "
-        "`|gold| > k`. Measures how cleanly the top-5 chunks the user sees "
-        "are filled with relevant Articles."
-    )
-
-    fragments.append(
-        f"- Citation recall ({agg['citation_recall']:.0%}) — what share of the gold "
-        "Articles are actually cited in the final report. This is the most user-facing "
-        "metric: when high, the user gets the obligations they need to know about."
+        f"- Retrieval Recall@5 ({agg['retrieval_recall_at_5']:.0%}, target "
+        f"{THRESHOLDS['retrieval_recall_at_5']:.0%}) uses the BEIR / MS-MARCO "
+        "normalisation `|top5 ∩ gold| / min(5, |gold|)` so it isn't math-capped "
+        "when `|gold| > k`."
     )
     fragments.append(
-        f"- Citation precision ({agg['citation_precision']:.0%}) — what share of cited "
-        "Articles are in the gold list. We don't gate on this because the retrieval "
-        "subgraph legitimately surfaces adjacent Articles (e.g. Annex III matches) that "
-        "aren't in the narrow gold set but are still useful."
+        f"- Citation recall ({agg['citation_recall']:.0%}) is the share of the "
+        "gold Articles that actually end up cited in the final report — the "
+        "most user-facing number, since a missed citation means a missed "
+        "obligation."
     )
     fragments.append(
-        f"- Median latency {agg['latency_p50']:.1f}s, p95 {agg['latency_p95']:.1f}s "
-        "(stub LLM dominates retrieval cost; with Ollama qwen2.5:3b expect 5–10× slower)."
+        f"- Citation precision ({agg['citation_precision']:.0%}) is the share "
+        "of cited Articles that are in the gold list. We don't gate hard on "
+        "this — the retriever legitimately surfaces adjacent Articles that "
+        "are useful context but aren't in the narrow gold set."
+    )
+    fragments.append(
+        f"- Median latency {agg['latency_p50']:.1f}s, p95 "
+        f"{agg['latency_p95']:.1f}s. Stub backend reflects pipeline-only cost; "
+        "with live Ollama qwen2.5:3b on CPU expect 50–100× slower."
     )
     return "\n".join(fragments)
 
