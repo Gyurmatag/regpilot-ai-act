@@ -31,16 +31,16 @@ Confusion matrix (rows = gold, columns = predicted):
 | retrieval_recall_at_5 | 74.17% | 90% | NO |
 | MRR | 0.781 | — | — |
 | latency p50 (s) | 0.01 | — | — |
-| latency p95 (s) | 0.08 | — | — |
+| latency p95 (s) | 0.07 | — | — |
 
 ## Per-question breakdown
 
 | id | gold | pred | ctx recall | R@5 | MRR | cite prec | cite recall | deadline | lat s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| q01 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.17 |
+| q01 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.12 |
 | q02 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
 | q03 | prohibited | prohibited | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.01 |
-| q04 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.08 |
+| q04 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.07 |
 | q05 | high_risk | minimal_risk | 0.00 | 0.00 | 0.00 | 0.75 | 0.25 | yes | 0.01 |
 | q06 | high_risk | high_risk | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | yes | 0.02 |
 | q07 | high_risk | minimal_risk | 0.00 | 0.00 | 0.00 | 0.75 | 0.25 | yes | 0.01 |

@@ -97,7 +97,12 @@ class AnthropicClient(LLMClient):
             resp = self._client.messages.create(**api_kwargs)
             for block in resp.content:
                 if getattr(block, "type", None) == "tool_use":
-                    return schema.model_validate(block.input)  # type: ignore[attr-defined]
+                    # The SDK exposes tool_use blocks as either
+                    # ToolUseBlock (with .input) or a partial dict at
+                    # stream time — `getattr` covers both without type-
+                    # ignore noise.
+                    payload = getattr(block, "input", {}) or {}
+                    return schema.model_validate(payload)
             raise StructuredOutputError(
                 f"Anthropic produced no tool_use block for {schema.__name__}."
             )

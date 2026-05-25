@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from typing import cast
 
 from rank_bm25 import BM25Okapi
 
@@ -66,7 +67,10 @@ class HybridRetriever:
         for idx, s in ranked:
             chunk = dict(self._corpus[idx])
             chunk["score"] = float(s) / max_s
-            out.append(chunk)  # type: ignore[arg-type]
+            # ``chunk`` is constructed from a RetrievedChunk + numeric ``score``,
+            # so it satisfies the TypedDict structurally even though mypy can't
+            # narrow it from ``dict`` automatically.
+            out.append(cast(RetrievedChunk, chunk))
         return out
 
     # ----- fusion ------------------------------------------------------- #
@@ -135,5 +139,5 @@ def _rrf(
     for doc_id, fused_score in ordered:
         materialised: dict = dict(docs[doc_id])
         materialised["score"] = fused_score
-        out.append(materialised)  # type: ignore[arg-type]
+        out.append(cast(RetrievedChunk, materialised))
     return out

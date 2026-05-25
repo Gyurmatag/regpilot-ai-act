@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict, get_args
 
 from langgraph.graph.message import add_messages
 
@@ -15,6 +15,14 @@ RiskTier = Literal[
     "general_purpose_systemic",
     "unknown",
 ]
+
+# Tuple of every concrete tier string the classifier may emit (the
+# ``Literal`` arm minus ``"unknown"``). Derived from :data:`RiskTier` so the
+# vocabulary can't drift between the type annotation and the runtime
+# membership tests downstream nodes do.
+RISK_TIER_VOCABULARY: tuple[str, ...] = tuple(
+    t for t in get_args(RiskTier) if t != "unknown"
+)
 
 
 class RetrievedChunk(TypedDict):
@@ -37,13 +45,19 @@ class TraceEvent(TypedDict):
     payload: dict[str, Any]
 
 
+UserRole = Literal["provider", "deployer", "importer", "distributor", "unknown"]
+"""The five values ``StructuredIntake.user_role`` may take. Re-exported so
+the intake heuristic + obligation_mapper + tests don't have to spell out
+the Literal arms themselves."""
+
+
 class StructuredIntake(TypedDict, total=False):
     """Output of the intake_classifier node."""
 
     system_purpose: str
     deployment_context: str
     data_modalities: list[str]
-    user_role: Literal["provider", "deployer", "importer", "distributor", "unknown"]
+    user_role: UserRole
     domain: str
     notes: str
 

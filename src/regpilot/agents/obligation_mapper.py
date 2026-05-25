@@ -157,20 +157,23 @@ def obligation_mapper(state: RegPilotState) -> RegPilotState:
     return updates
 
 
+_TIER_TO_SYSTEM_TYPE: dict[str, SystemType] = {
+    "prohibited": "prohibited",
+    "high_risk": "annex_iii_high_risk",
+    "limited_risk": "limited_risk",
+    "minimal_risk": "minimal_risk",
+    "unknown": "minimal_risk",
+}
+
+
 def _tier_to_system_type(tier: str) -> SystemType:
     """Map the classifier's tier vocabulary onto the deadline calculator's
-    system-type vocabulary. Pure 1:1 lookup."""
+    system-type vocabulary. Pure 1:1 lookup; GPAI sub-tiers collapse onto
+    the single ``general_purpose_ai`` system type."""
 
     if tier in ("general_purpose", "general_purpose_systemic"):
         return "general_purpose_ai"
-
-    return {
-        "prohibited": "prohibited",
-        "high_risk": "annex_iii_high_risk",
-        "limited_risk": "limited_risk",
-        "minimal_risk": "minimal_risk",
-        "unknown": "minimal_risk",
-    }.get(tier, "minimal_risk")  # type: ignore[return-value]
+    return _TIER_TO_SYSTEM_TYPE.get(tier, "minimal_risk")
 
 
 def _fmt_deadline(info: DeadlineInfo) -> str:

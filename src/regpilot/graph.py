@@ -55,6 +55,7 @@ from langgraph.graph import END, START, StateGraph
 
 from regpilot.agents.intake import intake_classifier
 from regpilot.agents.obligation_mapper import obligation_mapper
+from regpilot.agents.prohibited import prohibited_path
 from regpilot.agents.synthesizer import compliance_synthesizer
 from regpilot.agents.triage import risk_triage, route_by_tier
 from regpilot.agents.validator import route_after_validator, validator
@@ -135,75 +136,6 @@ def _make_rag_node(rag_subgraph):
             ],
         }
     return rag_retrieval
-
-
-def prohibited_path(state: RegPilotState) -> RegPilotState:
-    """Short-circuit for systems that are outright banned by Article 5."""
-
-    from regpilot.rag.vectorstore import VectorStore
-    from regpilot.tools.deadline_calculator import compute_deadlines, summarize_phase
-
-    structured = state.get("structured", {})
-    matches = state.get("annex_iii_matches", [])
-    info = compute_deadlines("prohibited")
-    obligations = [
-        {
-            "article": d.article,
-            "obligation": d.obligation,
-            "applies_from": d.applies_from.isoformat(),
-            "phase": summarize_phase(d.applies_from),
-            "note": d.note,
-        }
-        for d in info
-    ]
-
-    # Pre-load the Art. 5 + Art. 113 evidence chunks so the user sees citations
-    # in the trace panel and the eval's context_recall metric is fair to this
-    # branch (otherwise `retrieved=[]` and the metric scores 0%). Interleave
-    # Art. 5 + Art. 113 chunks so both Articles surface in the top-5 (otherwise
-    # Article 5 fills the whole budget and retrieval Recall@5 caps at 50%).
-    store = VectorStore()
-    all_docs = store.all_documents()
-    art5 = [c for c in all_docs if c.get("article") == "5"]
-    art113 = [c for c in all_docs if c.get("article") == "113"]
-    evidence: list = []
-    for a, b in zip(art5[:3], art113[:3], strict=False):
-        evidence.append(a)
-        evidence.append(b)
-    evidence.extend(art5[3:5])  # fill remainder if Art. 113 has fewer chunks
-
-    report = (
-        f"## Risk classification\n"
-        f"The described system is **PROHIBITED** under Article 5 of the EU AI Act.\n\n"
-        f"### Why\n{state.get('risk_rationale', 'Triage flagged the system as prohibited.')}\n\n"
-        f"### Mandatory action\nDo not place this system on the EU market or put it into service.\n"
-        f"Article 5 prohibitions have been in force since 2 February 2025 (Art. 113).\n\n"
-        f"### Cited\nArt. 5, Art. 113.\n"
-    )
-    return {
-        "retrieved": evidence,
-        "obligations": obligations,
-        "deadlines": {
-            "system_type": "prohibited",
-            "user_role": structured.get("user_role", "unknown"),
-            "items": [
-                {"article": d.article, "date": d.applies_from.isoformat()} for d in info
-            ],
-        },
-        "final_report": report,
-        "trace": [
-            *state.get("trace", []),
-            TraceEvent(
-                node="prohibited_path",
-                summary=f"emitted prohibition notice (cited {len(evidence)} evidence chunks)",
-                payload={
-                    "structured": dict(structured),
-                    "matches": matches,
-                    "evidence_articles": sorted({str(c.get('article')) for c in evidence}),
-                },
-            ),
-        ],
-    }
 
 
 # --------------------------------------------------------------------------- #

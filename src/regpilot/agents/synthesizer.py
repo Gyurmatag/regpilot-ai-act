@@ -20,8 +20,6 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from pydantic import BaseModel, Field
-
 from regpilot.agents._synth_scaffold import (
     LIFECYCLE,
     NEXT_STEPS,
@@ -38,42 +36,10 @@ from regpilot.agents._synth_scaffold import (
 )
 from regpilot.config import settings
 from regpilot.llm import LLMClient, get_llm
+from regpilot.schemas import ReportSections
 from regpilot.state import RegPilotState, TraceEvent
 
 logger = logging.getLogger(__name__)
-
-
-# --------------------------------------------------------------------------- #
-# Pydantic schema the LLM fills in
-# --------------------------------------------------------------------------- #
-
-
-class ReportSections(BaseModel):
-    """The narrative sections the LLM is asked to write.
-
-    Everything else in the final report comes from the deterministic
-    scaffold so we never put Article numbers in the LLM's hands.
-    """
-
-    executive_summary: str = Field(
-        description=(
-            "2-3 sentence executive summary of the compliance situation. "
-            "Mention the system, the tier, and the highest-impact obligation."
-        )
-    )
-    risk_classification_narrative: str = Field(
-        description=(
-            "One paragraph (3-5 sentences) explaining the tier choice, citing "
-            "specific Articles inline as 'Art. N'. Ground every citation in the "
-            "supplied Articles — never invent a number."
-        )
-    )
-    recommended_next_steps: list[str] = Field(
-        description=(
-            "3-5 concrete next actions the user should take. Each step should "
-            "be a single imperative sentence, citing the relevant Article."
-        )
-    )
 
 
 _SYSTEM = (

@@ -218,6 +218,118 @@ def _stub_report(prompt: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Schema dispatch — per-schema deterministic builders for generate_structured
+# --------------------------------------------------------------------------- #
+
+
+def _matches(*names: str, requires: set[str] | None = None):
+    """Return a predicate that matches a schema by its class name or by a
+    field-name superset. Lets the dispatch table tolerate renames."""
+
+    requires = requires or set()
+
+    def predicate(schema: type[BaseModel]) -> bool:
+        if schema.__name__ in names:
+            return True
+        fields = set(getattr(schema, "model_fields", {}).keys())
+        return bool(requires) and fields.issuperset(requires)
+
+    return predicate
+
+
+def _build_classification(prompt: str) -> dict[str, Any]:
+    """Builder for ``ClassificationResult``."""
+
+    desc = (
+        extract_after(prompt, "System description:")
+        or extract_after(prompt, "Description:")
+        or prompt
+    )
+    tier, rationale = _stub_classify(desc)
+    return {
+        "tier": tier,
+        "rationale": rationale,
+        "annex_iii_areas": _stub_annex_areas(desc) if tier == "high_risk" else [],
+        "art_5_codes": [],
+    }
+
+
+def _build_intake(prompt: str) -> dict[str, Any]:
+    """Builder for ``IntakeSchema``."""
+
+    desc = extract_after(prompt, "Description:") or prompt
+    return {
+        "system_purpose": _excerpt(desc, 200),
+        "deployment_context": "EU market",
+        "data_modalities": _guess_modalities(desc),
+        "user_role": "provider",
+        "domain": _guess_domain(desc),
+        "notes": "stub-generated",
+    }
+
+
+def _build_report_sections(prompt: str) -> dict[str, Any]:
+    """Builder for ``ReportSections``."""
+
+    tier_match = re.search(r"Risk tier.*?:\s*([A-Za-z _\-]+)", prompt)
+    tier = (
+        tier_match.group(1).strip().lower().replace(" ", "_") if tier_match else "unknown"
+    )
+    articles = sorted(
+        {
+            a
+            for a in re.findall(
+                r"\d{4}-\d{2}-\d{2}\s+\u2014\s+Art\.\s*(\d+[a-z]?)", prompt
+            )
+        }
+    ) or ["6"]
+    steps = _stub_next_steps(tier).splitlines()
+    return {
+        "executive_summary": (
+            f"This system is classified per the supplied triage. The "
+            f"compliance roadmap below lists the applicable Articles "
+            f"({', '.join('Art. ' + a for a in articles)}) and their "
+            f"Article 113 phased deadlines."
+        ),
+        "risk_classification_narrative": (
+            f"The triage analysis assigned this system to the relevant "
+            f"tier. The applicable obligations derive from the cited "
+            f"Articles ({', '.join('Art. ' + a for a in articles)}). "
+            f"Each obligation entry includes the precise Article 113 "
+            f"date the duty becomes enforceable."
+        ),
+        "recommended_next_steps": [
+            s.split(". ", 1)[1] if ". " in s else s for s in steps if s.strip()
+        ],
+    }
+
+
+# Order matters: ClassificationResult also has a ``rationale`` field which
+# IntakeSchema doesn't, so the more-specific match should run first.
+_STUB_SCHEMA_BUILDERS: list[tuple[Any, Any]] = [
+    (
+        _matches("ClassificationResult", requires={"tier", "rationale"}),
+        _build_classification,
+    ),
+    (
+        _matches("IntakeSchema", requires={"system_purpose", "user_role", "data_modalities"}),
+        _build_intake,
+    ),
+    (
+        _matches(
+            "ReportSections",
+            requires={
+                "executive_summary",
+                "risk_classification_narrative",
+                "recommended_next_steps",
+            },
+        ),
+        _build_report_sections,
+    ),
+]
+
+
+# --------------------------------------------------------------------------- #
 # Client
 # --------------------------------------------------------------------------- #
 
@@ -290,84 +402,19 @@ class StubClient(LLMClient):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> T:
-        """Recognise each Pydantic schema by name + fields and return a
-        validation-passing instance. Tests stay deterministic; no real LLM."""
+        """Build a validation-passing instance via a per-schema dispatch table.
 
-        name = schema.__name__
-        fields = set(getattr(schema, "model_fields", {}).keys())
+        The classifier, intake, and synthesizer each have their own Pydantic
+        schema. Rather than a long ``if name == "ClassificationResult" ...``
+        chain we dispatch through :data:`_STUB_SCHEMA_BUILDERS`. Adding a
+        new schema = registering one builder in that table.
+        """
 
-        if name == "ClassificationResult" or fields.issuperset({"tier", "rationale"}):
-            desc = (
-                extract_after(prompt, "System description:")
-                or extract_after(prompt, "Description:")
-                or prompt
-            )
-            tier, rationale = _stub_classify(desc)
-            areas = _stub_annex_areas(desc) if tier == "high_risk" else []
-            return schema.model_validate(
-                {
-                    "tier": tier,
-                    "rationale": rationale,
-                    "annex_iii_areas": areas,
-                    "art_5_codes": [],
-                }
-            )
+        for predicate, builder in _STUB_SCHEMA_BUILDERS:
+            if predicate(schema):
+                return schema.model_validate(builder(prompt))
 
-        if name == "IntakeSchema" or fields.issuperset(
-            {"system_purpose", "user_role", "data_modalities"}
-        ):
-            desc = extract_after(prompt, "Description:") or prompt
-            return schema.model_validate(
-                {
-                    "system_purpose": _excerpt(desc, 200),
-                    "deployment_context": "EU market",
-                    "data_modalities": _guess_modalities(desc),
-                    "user_role": "provider",
-                    "domain": _guess_domain(desc),
-                    "notes": "stub-generated",
-                }
-            )
-
-        if name == "ReportSections" or fields.issuperset(
-            {"executive_summary", "risk_classification_narrative", "recommended_next_steps"}
-        ):
-            tier_match = re.search(r"Risk tier.*?:\s*([A-Za-z _\-]+)", prompt)
-            tier = (
-                tier_match.group(1).strip().lower().replace(" ", "_")
-                if tier_match
-                else "unknown"
-            )
-            articles = sorted(
-                {
-                    a
-                    for a in re.findall(
-                        r"\d{4}-\d{2}-\d{2}\s+\u2014\s+Art\.\s*(\d+[a-z]?)", prompt
-                    )
-                }
-            ) or ["6"]
-            steps = _stub_next_steps(tier).splitlines()
-            return schema.model_validate(
-                {
-                    "executive_summary": (
-                        f"This system is classified per the supplied triage. The "
-                        f"compliance roadmap below lists the applicable Articles "
-                        f"({', '.join('Art. ' + a for a in articles)}) and their "
-                        f"Article 113 phased deadlines."
-                    ),
-                    "risk_classification_narrative": (
-                        f"The triage analysis assigned this system to the relevant "
-                        f"tier. The applicable obligations derive from the cited "
-                        f"Articles ({', '.join('Art. ' + a for a in articles)}). "
-                        f"Each obligation entry includes the precise Article 113 "
-                        f"date the duty becomes enforceable."
-                    ),
-                    "recommended_next_steps": [
-                        s.split(". ", 1)[1] if ". " in s else s for s in steps if s.strip()
-                    ],
-                }
-            )
-
-        # Default: try to fish JSON out of the free-form generate() output.
+        # No registered builder — fish JSON out of the free-form generate().
         raw = self.generate(
             prompt, system=system, temperature=temperature, max_tokens=max_tokens
         )

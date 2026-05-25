@@ -20,50 +20,19 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Literal
-
-from pydantic import BaseModel, Field
+from typing import cast, get_args
 
 from regpilot.config import settings
 from regpilot.llm import LLMClient, get_llm
-from regpilot.state import RegPilotState, StructuredIntake, TraceEvent
+from regpilot.schemas import IntakeSchema
+from regpilot.state import RegPilotState, StructuredIntake, TraceEvent, UserRole
 
 logger = logging.getLogger(__name__)
 
 
-# --------------------------------------------------------------------------- #
-# Pydantic schema the LLM fills in
-# --------------------------------------------------------------------------- #
-
-
-class IntakeSchema(BaseModel):
-    """Schema the LLM populates from free-text user input."""
-
-    system_purpose: str = Field(
-        description="One-sentence summary of what the AI system does."
-    )
-    deployment_context: str = Field(
-        default="",
-        description="Where / how the system is deployed (e.g. EU market, internal-only).",
-    )
-    data_modalities: list[str] = Field(
-        default_factory=list,
-        description="Modalities the system processes (text, image, audio, video, biometric, tabular).",
-    )
-    user_role: Literal["provider", "deployer", "importer", "distributor", "unknown"] = (
-        Field(
-            default="unknown",
-            description="The user's role in the AI value chain per the EU AI Act.",
-        )
-    )
-    domain: str = Field(
-        default="general",
-        description="Short domain label (HR, healthcare, education, law enforcement, general, ...).",
-    )
-    notes: str = Field(
-        default="",
-        description="Other relevant facts (e.g. generative model, EU-only deployment, GPAI).",
-    )
+# Membership-test set derived from the ``UserRole`` Literal so the heuristic
+# can't accept a string that isn't in the type.
+_VALID_ROLES: frozenset[str] = frozenset(get_args(UserRole))
 
 
 _SYSTEM = (
@@ -192,11 +161,12 @@ def _heuristic(text: str) -> StructuredIntake:
     if not modalities:
         modalities = ["text"]
 
+    safe_role: UserRole = cast(UserRole, role if role in _VALID_ROLES else "unknown")
     return {
         "system_purpose": text[:200] or "the described AI system",
         "deployment_context": "EU market" if "eu" in low or "europe" in low else "unspecified",
         "data_modalities": modalities,
-        "user_role": role,  # type: ignore[typeddict-item]
+        "user_role": safe_role,
         "domain": domain,
         "notes": "heuristic intake (fallback path)",
     }

@@ -9,12 +9,15 @@ of free-form text.
 from __future__ import annotations
 
 import logging
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from pydantic import BaseModel
 
 from regpilot.config import settings
 from regpilot.llm.base import LLMClient, StructuredOutputError
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageParam
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +60,10 @@ class OpenAIClient(LLMClient):
         max_tokens: int = 1024,
         **_: Any,
     ) -> str:
-        msgs: list[dict[str, str]] = []
-        if system:
-            msgs.append({"role": "system", "content": system})
-        msgs.append({"role": "user", "content": prompt})
+        msgs = _build_messages(system, prompt)
         resp = self._client.chat.completions.create(
             model=self.chat_model,
-            messages=msgs,  # type: ignore[arg-type]
+            messages=msgs,
             temperature=temperature,
             max_tokens=max_tokens,
         )
@@ -79,24 +79,24 @@ class OpenAIClient(LLMClient):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> T:
-        msgs: list[dict[str, str]] = []
-        if system:
-            msgs.append({"role": "system", "content": system})
-        msgs.append({"role": "user", "content": prompt})
+        msgs = _build_messages(system, prompt)
         try:
             parsed = self._client.beta.chat.completions.parse(
                 model=self.chat_model,
-                messages=msgs,  # type: ignore[arg-type]
+                messages=msgs,
                 response_format=schema,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+            # ``parsed.choices[0].message.parsed`` is typed as the schema we
+            # passed in via ``response_format``; the SDK overload returns it
+            # as ``Any`` so we cast back to ``T`` for the caller.
             obj = parsed.choices[0].message.parsed
             if obj is None:
                 raise StructuredOutputError(
                     f"OpenAI returned no parsed object for {schema.__name__}."
                 )
-            return obj  # type: ignore[return-value]
+            return cast(T, obj)
         except StructuredOutputError:
             raise
         except Exception as exc:
@@ -122,3 +122,21 @@ class OpenAIClient(LLMClient):
         cleaned = [t if t and t.strip() else " " for t in texts]
         resp = self._client.embeddings.create(model=self.embed_model, input=cleaned)
         return [d.embedding for d in resp.data]
+
+
+def _build_messages(
+    system: str | None, prompt: str
+) -> list[ChatCompletionMessageParam]:
+    """Assemble the ``messages=...`` payload OpenAI's chat APIs expect.
+
+    Returned typed against the SDK's ``ChatCompletionMessageParam`` so
+    callers don't need ``# type: ignore[arg-type]``. We construct the
+    inner dicts inline so each entry literally matches one of the
+    TypedDict arms (``SystemMessageParam``, ``UserMessageParam``).
+    """
+
+    msgs: list[ChatCompletionMessageParam] = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": prompt})
+    return msgs
