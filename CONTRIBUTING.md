@@ -42,12 +42,19 @@ src/regpilot/
 ├── llm/             provider abstraction (Ollama / OpenAI / Anthropic / stub)
 ├── ingestion/       PDF loader, article-aware chunker, Annex III data
 ├── rag/             embeddings, vector store, hybrid retriever, RAG subgraph
-├── tools/           risk_classifier, deadline_calculator, citation_validator
-├── agents/          intake, triage, obligation_mapper, synthesizer, validator
+├── tools/
+│   ├── risk_classifier/   bright_lines + semantic + llm_verdict
+│   ├── deadline_calculator.py
+│   └── citation_validator.py
+├── agents/
+│   ├── intake, triage, prohibited, obligation_mapper, synthesizer, validator
+│   └── _synth_scaffold.py   deterministic report scaffold (constants + helpers)
+├── evaluation/      metrics, runner, report, CLI for the functional eval
 ├── ui/              Streamlit app
-├── observability/   trace_node, JSON logging, request-id context
+├── observability.py trace_node + JSON logging + request-id context
+├── schemas.py       central Pydantic schemas the LLM fills in
 ├── config.py        pydantic-settings — every env var lives here
-├── state.py         the LangGraph TypedDict
+├── state.py         the LangGraph TypedDict + RiskTier / UserRole literals
 └── graph.py         workflow assembly + run() entry point
 ```
 
@@ -56,9 +63,10 @@ Test files mirror the source layout under `tests/`.
 ## What to read first
 
 - `src/regpilot/graph.py` — the main LangGraph workflow.
-- `src/regpilot/tools/risk_classifier.py` — bright-line rules + semantic
-  similarity + LLM verdict.
+- `src/regpilot/tools/risk_classifier/__init__.py` — bright-line rules +
+  semantic similarity + LLM verdict, orchestrated.
 - `src/regpilot/rag/subgraph.py` — the 4-node RAG subgraph.
+- `src/regpilot/schemas.py` — the LLM contract surface in one file.
 - `README.md` — architecture overview, eval results, production knobs.
 
 ## Code-quality bar

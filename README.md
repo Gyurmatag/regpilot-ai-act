@@ -169,17 +169,24 @@ regpilot-ai-act/
 ├── pyproject.toml, Makefile, .env.example
 ├── docker/entrypoint-ingest.sh         # pulls Ollama models, runs ingest
 ├── src/regpilot/
-│   ├── config.py, state.py, graph.py
+│   ├── config.py, state.py, graph.py, observability.py
+│   ├── schemas.py                      # central Pydantic schemas the LLM fills in
 │   ├── llm/                            # provider abstraction (Ollama / OpenAI / Anthropic / stub)
 │   │   ├── base.py, helpers.py, factory.py
-│   │   ├── ollama.py, openai_client.py, anthropic_client.py, stub.py
+│   │   └── ollama.py, openai_client.py, anthropic_client.py, stub.py
 │   ├── ingestion/{loader,chunker,annex}.py
 │   ├── rag/{embeddings,vectorstore,retriever,subgraph}.py
-│   ├── tools/{risk_classifier,deadline_calculator,citation_validator}.py
-│   ├── agents/{intake,triage,obligation_mapper,synthesizer,validator}.py
+│   ├── tools/
+│   │   ├── deadline_calculator.py, citation_validator.py
+│   │   └── risk_classifier/            # bright-line rules + semantic + LLM verdict
+│   │       └── {bright_lines,semantic,llm_verdict,__init__}.py
+│   ├── agents/{intake,triage,prohibited,obligation_mapper,synthesizer,validator}.py
+│   │   └── _synth_scaffold.py          # deterministic report scaffold
+│   ├── evaluation/                     # metrics + runner + report + CLI
+│   │   └── {metrics,runner,report,cli,__init__}.py
 │   └── ui/app.py                       # Streamlit
-├── scripts/{ingest,evaluate,loadtest}.py
-├── tests/                              # pytest — 133 tests, ~15 s, 91% coverage
+├── scripts/{ingest,evaluate,loadtest}.py  # thin shims around the packages
+├── tests/                              # pytest — 194 tests, ~16 s, 93% coverage
 ├── evaluation/
 │   ├── testset.jsonl                   # 16 main gold questions
 │   ├── testset_extra.jsonl             # 10 edge-case scenarios (set A)
@@ -237,7 +244,7 @@ streamlit run src/regpilot/ui/app.py
 Common operations live in the `Makefile`:
 
 ```bash
-make test                  # 133 tests, ~15 s
+make test                  # 194 tests, ~16 s
 make ci                    # lint + type + test in one shot
 make eval                  # stub eval against main testset
 make eval-extra            # stub eval against the 10 extra cases (A)
@@ -394,12 +401,13 @@ Two optimisations worth doing next:
 
 ## Tests and CI
 
-`make test` runs **133 tests in ~15 seconds** with **91% line coverage**
+`make test` runs **194 tests in ~16 seconds** with **93% line coverage**
 (CI gate at 90%):
 
 - `tests/test_tools.py` — risk classifier across every tier (bright-line +
   verb-form biometric + social-scoring patterns), deadline calculator
-  phase math, citation validator pass/fail.
+  phase math, citation validator pass/fail, Annex I product-safety
+  override.
 - `tests/test_chunker.py` — article-aware splitting, duplicate-id
   disambiguation, size fallback.
 - `tests/test_rag.py` — dense + sparse + hybrid retrieval, full RAG
@@ -412,7 +420,8 @@ Two optimisations worth doing next:
   53/54 vs Art. 53/54/55 deadline split, end-to-end report cites the
   correct subset.
 - `tests/test_observability.py` — `trace_node` exception capture,
-  structured JSON log formatter, Langfuse env-gating.
+  structured JSON log formatter, Langfuse env-gating, request-id
+  contextvar + filter.
 - `tests/test_llm.py` — every LLM client variant: OllamaClient
   (mocked-httpx happy path, 503 retry / exhaust, parallel embed ordering,
   whitespace-input substitution, Ollama 0.5+ schema-as-format
@@ -420,13 +429,23 @@ Two optimisations worth doing next:
   `beta.chat.completions.parse`, embeddings batching, missing-key
   error), AnthropicClient (messages API, tool-use structured output,
   no-embedding NotImplementedError), `CompositeClient` (Anthropic chat +
-  Ollama embedder), `StubClient` schema-aware branches for each
+  Ollama embedder), `StubClient` schema-aware dispatch table for each
   Pydantic schema, `get_llm()` factory + provider selection + fallback
   chain.
 - `tests/test_classifier_semantic.py` — Article 5 bright-line scan,
   GPAI Article 51 systemic-risk threshold detection, LLM-driven verdict
   path, graceful degradation when the LLM fails, cosine-similarity math,
   tier coercion.
+- `tests/test_synth_scaffold.py` — pure-data integrity (every tier has
+  next-steps, every role has a narrative) + every rendering helper
+  (obligation bullets, evidence block, FRIA flag, lifecycle, standards
+  alignment).
+- `tests/test_evaluation_metrics.py` — pure metric functions (Ragas
+  context recall + faithfulness, BEIR-normalised Recall@5, MRR, citation
+  precision/recall, deadline match) and aggregators.
+- `tests/test_evaluation_runner_and_report.py` — `load_testset` blank-line
+  handling, single-node + end-to-end runners, Markdown writer (stub vs
+  Ollama backends), `results_path` suffixing, CLI entry point.
 - `tests/test_loader.py` — page cleaner regexes, PDF download caching,
   EUR-Lex content-negotiation headers, refusal of non-PDF responses
   (CloudFront WAF challenge page), per-page extraction with broken-page
