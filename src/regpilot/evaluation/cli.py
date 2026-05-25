@@ -19,8 +19,28 @@ from regpilot.evaluation import THRESHOLDS
 from regpilot.evaluation.report import results_path, write_report
 from regpilot.evaluation.runner import eval_end_to_end, eval_triage_only, load_testset
 
-_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_TESTSET = _ROOT / "evaluation" / "testset.jsonl"
+
+def _default_testset() -> Path:
+    """Resolve the default testset path at call time.
+
+    Looked up in this order so the same default works from every supported
+    invocation site:
+
+    1. ``$CWD/evaluation/testset.jsonl`` — what ``docker exec regpilot-app
+       regpilot-eval`` and ``python scripts/evaluate.py`` see when run
+       from ``/app`` (the working dir baked into the image).
+    2. ``<repo-root>/evaluation/testset.jsonl`` — what ``regpilot-eval``
+       sees when invoked from an editable install inside the source repo
+       (``pip install -e .``). For a regular wheel install this falls
+       through to (1).
+    """
+
+    cwd_candidate = Path.cwd() / "evaluation" / "testset.jsonl"
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    repo_candidate = Path(__file__).resolve().parents[3] / "evaluation" / "testset.jsonl"
+    return repo_candidate
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -33,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--testset",
         type=Path,
-        default=_DEFAULT_TESTSET,
+        default=None,
         help="path to a testset JSONL file (default: evaluation/testset.jsonl)",
     )
     parser.add_argument(
@@ -43,8 +63,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    rows = load_testset(args.testset)
-    print(f"Loaded {len(rows)} gold questions from {args.testset}.")
+    testset_path: Path = args.testset or _default_testset()
+    rows = load_testset(testset_path)
+    print(f"Loaded {len(rows)} gold questions from {testset_path}.")
 
     print("Running single-node eval on risk_triage…")
     triage = eval_triage_only(rows)

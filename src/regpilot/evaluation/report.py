@@ -24,7 +24,18 @@ from regpilot.evaluation import THRESHOLDS
 # --------------------------------------------------------------------------- #
 
 
-_ROOT = Path(__file__).resolve().parents[3]  # …/regpilot-ai-act
+_REPO_ROOT = Path(__file__).resolve().parents[3]  # …/regpilot-ai-act in editable installs
+
+
+def _evaluation_dir() -> Path:
+    """Resolve the ``evaluation/`` directory at call time so the path works
+    from the docker image (``/app/evaluation`` is cwd-relative) and from a
+    source-tree editable install (``<repo-root>/evaluation``)."""
+
+    cwd_candidate = Path.cwd() / "evaluation"
+    if cwd_candidate.exists():
+        return cwd_candidate
+    return _REPO_ROOT / "evaluation"
 
 
 def results_path(suffix: str = "") -> Path:
@@ -33,7 +44,7 @@ def results_path(suffix: str = "") -> Path:
     testsets (e.g. ``extra`` → ``results_<backend>_extra.md``)."""
 
     extra = f"_{suffix}" if suffix else ""
-    return _ROOT / "evaluation" / f"results_{settings.llm_backend}{extra}.md"
+    return _evaluation_dir() / f"results_{settings.llm_backend}{extra}.md"
 
 
 # --------------------------------------------------------------------------- #
