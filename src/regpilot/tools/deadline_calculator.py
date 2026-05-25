@@ -272,14 +272,35 @@ def compute_deadlines(
         return out
 
     if system_type == "annex_i_high_risk":
+        # Annex I systems carry the full Chapter III high-risk obligation set
+        # (Art 6(1) makes that explicit) — same Articles as Annex III
+        # systems, just with the Phase-4 (2027-08-02) deadline. We compute
+        # the Annex III obligations first and then re-date them.
+        annex_iii_obligations = compute_deadlines(
+            "annex_iii_high_risk", user_role, systemic_risk=systemic_risk
+        )
+        # Lead with the Article 6(1) anchor so the report makes the
+        # Annex I / Annex III distinction obvious to the reader.
         out.append(
             DeadlineInfo(
-                obligation="Comply with sectoral product safety law + AI Act obligations.",
+                obligation=(
+                    "Comply with the sectoral product-safety regime (Annex I) "
+                    "AND the full Chapter III high-risk obligations below."
+                ),
                 article="Art. 6(1)",
                 applies_from=ANNEX_I_HIGH_RISK_APPLY,
-                note="Annex I product-safety high-risk systems have an extra year.",
+                note="Annex I product-safety AI: same obligations, Phase-4 deadline.",
             )
         )
+        for info in annex_iii_obligations:
+            out.append(
+                DeadlineInfo(
+                    obligation=info.obligation,
+                    article=info.article,
+                    applies_from=ANNEX_I_HIGH_RISK_APPLY,
+                    note=info.note,
+                )
+            )
         return out
 
     return out  # pragma: no cover - exhaustive above

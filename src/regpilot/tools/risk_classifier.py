@@ -373,12 +373,22 @@ _CLASSIFY_SYSTEM = (
 _CLASSIFY_PROMPT = """Classify the system below by EU AI Act risk tier.
 
 Tier vocabulary:
-- prohibited                 — Article 5 prohibited practices.
-- high_risk                  — Annex III high-risk use cases OR Annex I product-safety components.
-- limited_risk               — Article 50 transparency duties only (chatbots, deepfakes, synthetic-media generators, voice assistants).
-- minimal_risk               — everything else (spam filters, recommender systems, basic productivity tools).
-- general_purpose            — Chapter V GPAI model (foundation model, LLM, multi-purpose generative model offered to downstream deployers).
-- general_purpose_systemic   — GPAI model that meets the Article 51 systemic-risk threshold (≥10^25 FLOPs training compute, OR Commission designation, OR "frontier" model).
+- prohibited                 — Article 5 prohibited practices (social scoring, untargeted face scraping, predictive policing by profiling, real-time remote biometric ID in public for law enforcement, workplace/education emotion recognition, biometric categorisation of sensitive attributes, subliminal/manipulative techniques, exploiting vulnerabilities).
+- high_risk                  — Annex III use cases OR Annex I product-safety components.
+                                Annex III examples: biometric ID (including voice biometric auth, gait recognition); critical infrastructure (electricity grid, water supply, road traffic signals / lights, air traffic, railway signalling); education (admission ranking including PhD / kindergarten, exam proctoring, adaptive tutoring that evaluates learning outcomes); employment / worker management (CV screening, performance evaluation, gig-marketplace task allocation); essential services (credit scoring, loan / mortgage decisioning, insurance underwriting, real-time credit-card fraud blocking, welfare eligibility, emergency dispatch, kidney-transplant donor matching); law enforcement risk assessment; migration / border / visa decisioning; administration of justice — including legal-research tools used BY judges; medical-device or clinical-decision-support AI.
+                                Annex I examples: automotive ADAS / pedestrian detection in cars; aviation safety; medical devices and IVD; machinery; toy safety; lift control.
+- limited_risk               — Article 50 transparency duties only (chatbots that converse with humans, deepfakes, AI-generated synthetic content INCLUDING AI-drafted legal contracts / NDAs / marketing copy, voice assistants, emotion recognition outside workplace/education).
+- minimal_risk               — everything else: spam filters; recommender systems (movies, ads, dating, e-commerce, music); consumer fitness apps; smart-home thermostats / vacuums; search ranking; INDUSTRIAL predictive maintenance; semiconductor / manufacturing defect inspection; agricultural drones; productivity tools.
+- general_purpose            — Chapter V GPAI model (foundation model, LLM, NNb-parameter generative / code-completion / multimodal / translation model offered to downstream deployers via API).
+- general_purpose_systemic   — GPAI model that ALSO meets the Article 51 systemic-risk threshold (≥10^25 FLOPs training compute, OR Commission designation, OR "frontier" model).
+
+Common 3B-LLM traps — read these carefully:
+- "Predictive maintenance" of industrial machinery is NOT predictive policing. Industrial reliability ML → minimal_risk.
+- Consumer-facing recommender systems (movies, ads, products, dating matches) are NOT chatbots. They → minimal_risk, NOT limited_risk.
+- Consumer fitness app or smart thermostat → minimal_risk. No Article 50 duty unless it actively converses or generates content.
+- AI used BY end-users to GENERATE legal documents (contracts, NDAs) → limited_risk (Article 50 AI-generated content). Only AI used BY judges/courts to interpret facts or apply law → high_risk (administration of justice).
+- Industrial defect inspection (semiconductor wafers, manufacturing QC) → minimal_risk, not Annex III.
+- Agricultural drones doing crop monitoring → minimal_risk; they don't process people's biometric data.
 
 Candidate Annex III areas the semantic matcher surfaced (descending similarity):
 {candidates}

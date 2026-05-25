@@ -6,6 +6,7 @@ from datetime import date
 
 import pytest
 
+from regpilot.agents.obligation_mapper import _is_annex_i, obligation_mapper
 from regpilot.tools.citation_validator import reset_cache, validate
 from regpilot.tools.deadline_calculator import (
     ANNEX_I_HIGH_RISK_APPLY,
@@ -182,3 +183,86 @@ def test_citation_validator_flags_missing_citations() -> None:
     r = validate("This report contains no citations whatsoever.")
     assert not r.ok
     assert any("No 'Art. N' citations" in i for i in r.issues)
+
+
+# --------------------------------------------------------------------------- #
+# obligation_mapper — Annex I detection override
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Pedestrian detection AI built into our production passenger cars; "
+        "triggers automated emergency braking.",
+        "Driver-assistance ADAS module for lane keeping on highways.",
+        "AI-powered medical device for radiology lung nodule detection.",
+        "Cockpit safety avionics module for commercial aircraft.",
+        "Industrial machinery safety AI for press brake operation.",
+    ],
+)
+def test_is_annex_i_recognises_product_safety_domains(text: str) -> None:
+    """Bright-line domains that fall under AI Act Annex I (Sections A + B)
+    map to product-safety regimes with a Phase-4 (2027-08-02) deadline,
+    not the Phase-3 Annex III date."""
+
+    assert _is_annex_i(text), f"expected {text!r} to match an Annex I pattern"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "CV screening tool for hiring managers.",                 # Annex III, not Annex I
+        "Credit-card fraud detection in real time.",              # Annex III essential services
+        "Customer support chatbot for our website.",              # limited_risk
+        "A spam filter for company email.",                       # minimal_risk
+        "A foundation language model offered as an API.",         # GPAI
+        # Air traffic control INFRASTRUCTURE is Annex III critical
+        # infrastructure, not Annex I aviation product safety. The detector
+        # must NOT false-positive here.
+        "Air traffic control AI that sequences arrival slots at a major airport.",
+        "Railway signalling controller for high-speed train control.",
+    ],
+)
+def test_is_annex_i_does_not_false_positive_on_other_tiers(text: str) -> None:
+    assert not _is_annex_i(text), f"expected {text!r} NOT to match Annex I"
+
+
+def test_obligation_mapper_promotes_high_risk_adas_to_annex_i_deadline() -> None:
+    """End-to-end: a high-risk ADAS / pedestrian-detection system should
+    pick up the Phase-4 (2027-08-02) deadline via the Annex I override
+    instead of the default Phase-3 (2026-08-02) date."""
+
+    state = {
+        "user_input": (
+            "Real-time pedestrian detection AI built into our production "
+            "passenger cars; if a pedestrian is detected on the trajectory "
+            "it triggers automated emergency braking."
+        ),
+        "risk_tier": "high_risk",
+        "structured": {
+            "user_role": "provider",
+            "system_purpose": "ADAS pedestrian detection",
+        },
+        "retrieved": [],
+        "trace": [],
+    }
+    out = obligation_mapper(state)  # type: ignore[arg-type]
+    assert out["deadlines"]["system_type"] == "annex_i_high_risk"
+    assert all(item["date"] == ANNEX_I_HIGH_RISK_APPLY.isoformat()
+               for item in out["deadlines"]["items"])
+
+
+def test_obligation_mapper_keeps_annex_iii_for_non_product_high_risk() -> None:
+    state = {
+        "user_input": "CV screening tool that ranks job applicants.",
+        "risk_tier": "high_risk",
+        "structured": {
+            "user_role": "provider",
+            "system_purpose": "CV screening",
+        },
+        "retrieved": [],
+        "trace": [],
+    }
+    out = obligation_mapper(state)  # type: ignore[arg-type]
+    assert out["deadlines"]["system_type"] == "annex_iii_high_risk"
